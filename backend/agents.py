@@ -22,6 +22,8 @@ class AgentState(TypedDict):
     review: str
     issue_number: int
     pr_number: int
+    branch_name: str
+    iteration: int
     log_messages: list
 
 def run_llm(system_prompt: str, user_prompt: str):
@@ -45,16 +47,13 @@ def architect_node(state: AgentState):
     if gh:
         try:
             gh_repo = gh.get_repo(repo)
-            # Fetch root directory files to assess tech stack
             contents = gh_repo.get_contents("")
             tree_content = "\n".join([c.path for c in contents])
-            
             try:
                 readme = gh_repo.get_readme()
                 readme_content = readme.decoded_content.decode('utf-8')
             except:
                 readme_content = "No README found."
-                
         except Exception as e:
             tree_content = "Unable to fetch repo tree."
             readme_content = "Inaccessible."
@@ -90,12 +89,11 @@ def brainstormer_node(state: AgentState):
     })
     state["log_messages"].append({"agent": "Visionary", "msg": f"Proposed Feature: {idea}", "color": "text-emerald-400"})
     
-    # GitHub Action: Create Issue
     if gh:
         try:
             gh_repo = gh.get_repo(repo)
             issue = gh_repo.create_issue(
-                title="[Feature Request] AI Brainstormed Idea",
+                title="[Feature Request] Implement proposed architecture enhancements",
                 body=f"### Architect Directive\n{directive}\n\n### Proposed Feature\n{idea}"
             )
             state["issue_number"] = issue.number
@@ -127,7 +125,6 @@ def pm_node(state: AgentState):
     msg_color = "text-amber-400" if is_approved else "text-red-400"
     state["log_messages"].append({"agent": "Reviewer", "msg": f"Decision: {decision}", "color": msg_color})
     
-    # GitHub Action: Comment on Issue
     if gh and issue_number:
         try:
             gh_repo = gh.get_repo(repo)
@@ -148,27 +145,34 @@ def should_implement(state: AgentState):
 def implementer_node(state: AgentState):
     idea = state["idea"]
     issue_number = state.get("issue_number")
+    iteration = state.get("iteration", 0)
+    prev_code = state.get("code", "")
+    review = state.get("review", "")
     
-    system_prompt = "You are the Implementer Agent. Write a tiny python script that implements the core logic of the idea. Keep it very short."
-    code = run_llm(system_prompt, f"Write code for: {idea}")
+    if iteration > 0:
+        system_prompt = "You are the Implementer Agent. Your previous code was rejected by the Maintainer. Fix it based on their feedback. Output ONLY the fixed Python script."
+        user_prompt = f"Previous Code:\n{prev_code}\n\nMaintainer Feedback:\n{review}"
+    else:
+        system_prompt = "You are the Implementer Agent. Write a tiny python script that implements the core logic of the idea. Keep it very short. Output ONLY the Python script."
+        user_prompt = f"Write code for: {idea}"
+        
+    code = run_llm(system_prompt, user_prompt)
     state["code"] = code
     
     state["log_messages"].append({"type": "ui_update", "agentStatus": {"Implementer": "active"}})
-    state["log_messages"].append({
-        "type": "ui_update",
-        "pipeline": {"id": f"#{issue_number}" if issue_number else "#NEW", "title": idea[:30] + "...", "status": "implementing", "agent": "Implementer"}
-    })
-    state["log_messages"].append({"agent": "Implementer", "msg": f"Generated code implementation.", "color": "text-blue-400"})
     
-    # GitHub Action: Open PR linking to issue
+    if iteration > 0:
+        state["log_messages"].append({"agent": "Implementer", "msg": f"Fixed code based on feedback (Iteration {iteration}).", "color": "text-blue-400"})
+    else:
+        state["log_messages"].append({"agent": "Implementer", "msg": "Generated initial code implementation.", "color": "text-blue-400"})
+        state["log_messages"].append({
+            "type": "ui_update",
+            "pipeline": {"id": f"#{issue_number}" if issue_number else "#NEW", "title": idea[:30] + "...", "status": "implementing", "agent": "Implementer"}
+        })
+    
     if gh and issue_number:
         try:
             gh_repo = gh.get_repo(state["repo_name"])
-            default_branch = gh_repo.default_branch
-            sb = gh_repo.get_branch(default_branch)
-            
-            branch_name = f"feature/issue-{issue_number}-{uuid.uuid4().hex[:4]}"
-            gh_repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sb.commit.sha)
             
             code_to_commit = code
             if "```python" in code:
@@ -176,23 +180,47 @@ def implementer_node(state: AgentState):
             elif "```" in code:
                 code_to_commit = code.split("```")[1].split("```")[0].strip()
                 
-            gh_repo.create_file(
-                path=f"ai_feature_issue_{issue_number}.py",
-                message=f"Auto-generated feature for Issue #{issue_number}",
-                content=code_to_commit,
-                branch=branch_name
-            )
+            path = f"feature_issue_{issue_number}.py"
             
-            pr = gh_repo.create_pull(
-                title=f"[AI] Implement Feature from #{issue_number}",
-                body=f"This PR was automatically generated.\n\nResolves #{issue_number}",
-                head=branch_name,
-                base=default_branch
-            )
-            state["pr_number"] = pr.number
-            state["log_messages"].append({"agent": "System", "msg": f"Created PR #{pr.number}: {pr.html_url}", "color": "text-emerald-500"})
+            if iteration == 0:
+                default_branch = gh_repo.default_branch
+                sb = gh_repo.get_branch(default_branch)
+                branch_name = f"feature/issue-{issue_number}-{uuid.uuid4().hex[:4]}"
+                state["branch_name"] = branch_name
+                gh_repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sb.commit.sha)
+                
+                gh_repo.create_file(
+                    path=path,
+                    message=f"Implement Feature for Issue #{issue_number}",
+                    content=code_to_commit,
+                    branch=branch_name
+                )
+                
+                pr = gh_repo.create_pull(
+                    title=f"Implement Feature Request #{issue_number}",
+                    body=f"This PR resolves #{issue_number}.",
+                    head=branch_name,
+                    base=default_branch
+                )
+                state["pr_number"] = pr.number
+                state["log_messages"].append({"agent": "System", "msg": f"Created PR #{pr.number}: {pr.html_url}", "color": "text-emerald-500"})
+            else:
+                branch_name = state["branch_name"]
+                file = gh_repo.get_contents(path, ref=branch_name)
+                gh_repo.update_file(
+                    path=file.path,
+                    message=f"Fix: Address maintainer feedback (Iteration {iteration})",
+                    content=code_to_commit,
+                    sha=file.sha,
+                    branch=branch_name
+                )
+                pr_number = state["pr_number"]
+                pr = gh_repo.get_pull(pr_number)
+                pr.create_issue_comment(f"I have pushed a new commit to address the feedback. (Iteration {iteration})")
+                state["log_messages"].append({"agent": "System", "msg": f"Pushed fix to PR #{pr_number}", "color": "text-emerald-500"})
+                
         except Exception as e:
-            state["log_messages"].append({"agent": "System", "msg": f"Failed to create PR: {str(e)}", "color": "text-red-500"})
+            state["log_messages"].append({"agent": "System", "msg": f"Failed GitHub API Action: {str(e)}", "color": "text-red-500"})
 
     state["log_messages"].append({"type": "ui_update", "agentStatus": {"Implementer": "idle"}})
     return state
@@ -201,17 +229,17 @@ def maintainer_node(state: AgentState):
     code = state["code"]
     repo_name = state["repo_name"]
     pr_number = state.get("pr_number")
+    iteration = state.get("iteration", 0)
     
-    system_prompt = "You are the Maintainer. Review the code. Say 'LGTM - Merging PR' if it looks okay, or point out a flaw."
+    system_prompt = "You are the Maintainer. Review the code. Say 'LGTM' if it looks okay, or point out a flaw."
     review = run_llm(system_prompt, f"Review this code:\n{code}")
     state["review"] = review
     
     state["log_messages"].append({"type": "ui_update", "agentStatus": {"Maintainer": "active"}})
     state["log_messages"].append({"agent": "Maintainer", "msg": f"Code Review: {review}", "color": "text-purple-400"})
     
-    is_lgtm = "LGTM" in review or "Merging" in review
+    is_lgtm = "LGTM" in review
     
-    # GitHub Action: Comment on PR and potentially merge
     if gh and pr_number:
         try:
             gh_repo = gh.get_repo(repo_name)
@@ -219,7 +247,7 @@ def maintainer_node(state: AgentState):
             pr.create_issue_comment(f"**Maintainer Review:**\n{review}")
             
             if is_lgtm:
-                pr.merge(commit_message=f"Auto-merged by AI Maintainer (PR #{pr_number})")
+                pr.merge(commit_message=f"Merged PR #{pr_number}")
                 state["log_messages"].append({
                     "type": "ui_update",
                     "activity": {"title": f"Merged PR #{pr_number}", "time": "Just now", "type": "merge"}
@@ -228,8 +256,18 @@ def maintainer_node(state: AgentState):
         except Exception as e:
             state["log_messages"].append({"agent": "System", "msg": f"Failed to review/merge PR: {str(e)}", "color": "text-red-500"})
 
+    if not is_lgtm:
+        state["iteration"] = iteration + 1
+
     state["log_messages"].append({"type": "ui_update", "agentStatus": {"Maintainer": "idle"}})
     return state
+
+def should_iterate(state: AgentState):
+    if "LGTM" in state.get("review", ""):
+        return END
+    if state.get("iteration", 0) >= 3:
+        return END
+    return "implementer"
 
 # Build the Graph
 workflow = StateGraph(AgentState)
@@ -245,7 +283,7 @@ workflow.add_edge("architect", "brainstormer")
 workflow.add_edge("brainstormer", "pm")
 workflow.add_conditional_edges("pm", should_implement)
 workflow.add_edge("implementer", "maintainer")
-workflow.add_edge("maintainer", END)
+workflow.add_conditional_edges("maintainer", should_iterate)
 
 app = workflow.compile()
 
@@ -262,6 +300,8 @@ async def run_agent_loop(repo_name: str, ws_manager):
         "review": "", 
         "issue_number": 0,
         "pr_number": 0,
+        "branch_name": "",
+        "iteration": 0,
         "log_messages": []
     }
     
