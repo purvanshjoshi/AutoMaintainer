@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+langchain
+litellm
+langgraph
+pygithub
+python-dotenv
+websockets
+pydantic
