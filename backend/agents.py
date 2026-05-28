@@ -173,6 +173,10 @@ workflow.add_edge("maintainer", END)
 app = workflow.compile()
 
 async def run_agent_loop(repo_name: str, ws_manager):
+    # Sanitize repo_name to handle full URLs (e.g., https://github.com/owner/repo -> owner/repo)
+    if "github.com/" in repo_name:
+        repo_name = repo_name.split("github.com/")[-1].strip("/")
+    
     # This generator yields logs back to the websocket
     initial_state = {"repo_name": repo_name, "idea": "", "pm_decision": "", "code": "", "review": "", "log_messages": []}
     
