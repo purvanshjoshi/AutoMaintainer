@@ -27,5 +27,7 @@ ENV PORT=7860
 # Hugging Face Spaces expose port 7860
 EXPOSE 7860
 
+WORKDIR /app/backend
+
 # Run FastAPI backend (which also serves the static Next.js frontend)
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
