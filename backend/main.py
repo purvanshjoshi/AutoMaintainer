@@ -47,11 +47,7 @@ async def start_agents(req: StartRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(run_agent_loop, req.repo_name, manager)
     return {"status": "started"}
 
-# Serve the static Next.js frontend if the out directory exists
-if os.path.exists("../dashboard/out"):
-    app.mount("/", StaticFiles(directory="../dashboard/out", html=True), name="dashboard")
-elif os.path.exists("dashboard/out"): # In docker container
-    app.mount("/", StaticFiles(directory="dashboard/out", html=True), name="dashboard")
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -63,3 +59,9 @@ async def websocket_endpoint(websocket: WebSocket):
             await manager.broadcast({"type": "system", "msg": f"Received: {data}"})
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+# Serve the static Next.js frontend if the out directory exists
+if os.path.exists("../dashboard/out"):
+    app.mount("/", StaticFiles(directory="../dashboard/out", html=True), name="dashboard")
+elif os.path.exists("dashboard/out"): # In docker container
+    app.mount("/", StaticFiles(directory="dashboard/out", html=True), name="dashboard")
