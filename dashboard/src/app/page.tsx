@@ -11,6 +11,14 @@ export default function Home() {
   const [logs, setLogs] = useState([
     { time: "00:00:00", agent: "System", msg: "Connecting to backend...", color: "text-zinc-500" }
   ]);
+  const [pipeline, setPipeline] = useState<any[]>([]);
+  const [activity, setActivity] = useState<any[]>([]);
+  const [agentStatus, setAgentStatus] = useState<any>({
+    Visionary: 'idle',
+    Reviewer: 'idle',
+    Implementer: 'idle',
+    Maintainer: 'idle',
+  });
 
   const handleStartStop = async () => {
     if (!isRunning) {
@@ -45,12 +53,29 @@ export default function Home() {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        setLogs(prev => [...prev, {
-          time: new Date().toLocaleTimeString(),
-          agent: data.agent || "System",
-          msg: data.msg || JSON.stringify(data),
-          color: data.color || "text-zinc-400"
-        }]);
+        if (data.type === 'ui_update') {
+          if (data.agentStatus) {
+             setAgentStatus((prev: any) => ({ ...prev, ...data.agentStatus }));
+          }
+          if (data.pipeline) {
+             setPipeline((prev) => {
+               // Update existing or add new
+               const exists = prev.find(p => p.id === data.pipeline.id);
+               if (exists) return prev.map(p => p.id === data.pipeline.id ? data.pipeline : p);
+               return [data.pipeline, ...prev];
+             });
+          }
+          if (data.activity) {
+             setActivity((prev) => [data.activity, ...prev]);
+          }
+        } else {
+          setLogs(prev => [...prev, {
+            time: new Date().toLocaleTimeString(),
+            agent: data.agent || "System",
+            msg: data.msg || JSON.stringify(data),
+            color: data.color || "text-zinc-400"
+          }]);
+        }
       } catch (e) {
         console.error("Failed to parse WS message", e);
       }
@@ -77,10 +102,10 @@ export default function Home() {
           <div>
             <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-4 px-2">The Crew</h2>
             <div className="space-y-1">
-              <AgentRow name="Visionary" role="Brainstormer" icon={<Search className="w-4 h-4 text-emerald-400" />} status="idle" />
-              <AgentRow name="Reviewer" role="Product Manager" icon={<CheckCircle className="w-4 h-4 text-amber-400" />} status="idle" />
-              <AgentRow name="Implementer" role="Developer" icon={<FileCode className="w-4 h-4 text-blue-400" />} status="active" />
-              <AgentRow name="Maintainer" role="Senior Engineer" icon={<GitPullRequest className="w-4 h-4 text-purple-400" />} status="idle" />
+              <AgentRow name="Visionary" role="Brainstormer" icon={<Search className="w-4 h-4 text-emerald-400" />} status={agentStatus.Visionary} />
+              <AgentRow name="Reviewer" role="Product Manager" icon={<CheckCircle className="w-4 h-4 text-amber-400" />} status={agentStatus.Reviewer} />
+              <AgentRow name="Implementer" role="Developer" icon={<FileCode className="w-4 h-4 text-blue-400" />} status={agentStatus.Implementer} />
+              <AgentRow name="Maintainer" role="Senior Engineer" icon={<GitPullRequest className="w-4 h-4 text-purple-400" />} status={agentStatus.Maintainer} />
             </div>
           </div>
           
@@ -158,24 +183,12 @@ export default function Home() {
               <div className="col-span-2 space-y-6">
                 <DashboardCard title="Active Feature Pipeline">
                   <div className="space-y-4">
-                    <PipelineItem 
-                      id="#124" 
-                      title="Implement WebSocket real-time updates" 
-                      status="implementing" 
-                      agent="Implementer"
-                    />
-                    <PipelineItem 
-                      id="#125" 
-                      title="Add Dark Mode toggle to UI" 
-                      status="reviewing" 
-                      agent="Reviewer"
-                    />
-                    <PipelineItem 
-                      id="#126" 
-                      title="Optimize database queries in /api/users" 
-                      status="brainstorming" 
-                      agent="Visionary"
-                    />
+                    {pipeline.length === 0 && (
+                      <div className="text-sm text-zinc-500 text-center py-8">Waiting for AI agents to start a pipeline...</div>
+                    )}
+                    {pipeline.map((p, i) => (
+                      <PipelineItem key={i} {...p} />
+                    ))}
                   </div>
                 </DashboardCard>
                 
@@ -207,9 +220,12 @@ export default function Home() {
               <div className="space-y-6">
                 <DashboardCard title="Recent Activity">
                   <div className="space-y-4 relative before:absolute before:inset-0 before:ml-2.5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-zinc-800/80 before:to-transparent">
-                     <ActivityItem title="Merged PR #123" time="2h ago" type="merge" />
-                     <ActivityItem title="Created Issue #126" time="4h ago" type="issue" />
-                     <ActivityItem title="Merged PR #122" time="1d ago" type="merge" />
+                     {activity.length === 0 && (
+                       <div className="text-sm text-zinc-500 text-center py-4 relative z-10 bg-[#0d0d0d]">No recent activity</div>
+                     )}
+                     {activity.map((a, i) => (
+                       <ActivityItem key={i} {...a} />
+                     ))}
                   </div>
                 </DashboardCard>
                 

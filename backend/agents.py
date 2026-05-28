@@ -35,7 +35,16 @@ def brainstormer_node(state: AgentState):
     
     idea = run_llm(system_prompt, user_prompt)
     state["idea"] = idea
+    state["log_messages"].append({
+        "type": "ui_update",
+        "agentStatus": {"Visionary": "active"}
+    })
+    state["log_messages"].append({
+        "type": "ui_update",
+        "pipeline": {"id": "#NEW", "title": idea[:30] + "...", "status": "brainstorming", "agent": "Visionary"}
+    })
     state["log_messages"].append({"agent": "Visionary", "msg": f"Proposed Feature: {idea}", "color": "text-emerald-400"})
+    state["log_messages"].append({"type": "ui_update", "agentStatus": {"Visionary": "idle"}})
     return state
 
 def pm_node(state: AgentState):
@@ -45,9 +54,16 @@ def pm_node(state: AgentState):
     decision = run_llm(system_prompt, f"Review this idea: {idea}")
     state["pm_decision"] = decision
     
+    state["log_messages"].append({"type": "ui_update", "agentStatus": {"Reviewer": "active"}})
+    state["log_messages"].append({
+        "type": "ui_update",
+        "pipeline": {"id": "#NEW", "title": idea[:30] + "...", "status": "reviewing", "agent": "Reviewer"}
+    })
+    
     is_approved = decision.startswith("APPROVED")
     msg_color = "text-amber-400" if is_approved else "text-red-400"
     state["log_messages"].append({"agent": "Reviewer", "msg": f"Decision: {decision}", "color": msg_color})
+    state["log_messages"].append({"type": "ui_update", "agentStatus": {"Reviewer": "idle"}})
     return state
 
 def should_implement(state: AgentState):
@@ -59,7 +75,13 @@ def implementer_node(state: AgentState):
     
     code = run_llm(system_prompt, f"Write code for: {idea}")
     state["code"] = code
+    state["log_messages"].append({"type": "ui_update", "agentStatus": {"Implementer": "active"}})
+    state["log_messages"].append({
+        "type": "ui_update",
+        "pipeline": {"id": "#NEW", "title": idea[:30] + "...", "status": "implementing", "agent": "Implementer"}
+    })
     state["log_messages"].append({"agent": "Implementer", "msg": f"Generated code implementation.", "color": "text-blue-400"})
+    state["log_messages"].append({"type": "ui_update", "agentStatus": {"Implementer": "idle"}})
     return state
 
 def maintainer_node(state: AgentState):
@@ -68,7 +90,14 @@ def maintainer_node(state: AgentState):
     
     review = run_llm(system_prompt, f"Review this code:\n{code}")
     state["review"] = review
+    state["log_messages"].append({"type": "ui_update", "agentStatus": {"Maintainer": "active"}})
     state["log_messages"].append({"agent": "Maintainer", "msg": f"Code Review: {review}", "color": "text-purple-400"})
+    if "LGTM" in review or "Merging" in review:
+        state["log_messages"].append({
+            "type": "ui_update",
+            "activity": {"title": "Merged new feature", "time": "Just now", "type": "merge"}
+        })
+    state["log_messages"].append({"type": "ui_update", "agentStatus": {"Maintainer": "idle"}})
     return state
 
 
