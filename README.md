@@ -1,14 +1,90 @@
+<div align="center">
+  
+# 🚀 AutoMaintainer
+**An Always-On Autonomous AI Software Engineering Team**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/)
+[![Next.js](https://img.shields.io/badge/Next.js-14-black.svg)](https://nextjs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com/)
+
+</div>
+
+AutoMaintainer is a revolutionary proof-of-concept that demonstrates an entirely autonomous, multi-agent software engineering team working natively inside your GitHub repositories.
+
+Built with **LangGraph**, **FastAPI**, **Next.js**, and powered by **Llama 3 (via Groq)**, this system doesn't just print code to a terminal—it brainstorms ideas, creates real GitHub Issues, writes code, submits Pull Requests, reviews the PRs, fixes its own bugs, and merges the code into your `main` branch.
+
 ---
-title: AutoMaintainer
-emoji: 🚀
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-pinned: false
+
+## ✨ Features
+- **5-Agent Hierarchy**: Tasks are distributed across specialized agents (Architect, Visionary, Reviewer, Implementer, Maintainer).
+- **Native GitHub Integration**: Agents communicate through real GitHub Issues, PR Comments, and Git Branches.
+- **Self-Correcting Iteration Loop**: If the Maintainer AI rejects a PR, the Implementer AI reads the feedback and pushes a new commit to fix the bug!
+- **Real-time Observability UI**: A sleek, dark-mode React dashboard connected via WebSockets allows you to monitor the AI Crew as they work in real-time.
+- **Blazing Fast**: Powered by Groq's LPU inference, the entire cycle from Architecture to Merged PR can happen in under 20 seconds.
+
 ---
 
-# AutoMaintainer
+## 🛠️ Quick Start
 
-AutoMaintainer is an Always-On Autonomous AI Software Company that monitors, brainstorms, implements, and maintains GitHub repositories.
+### 1. Prerequisites
+- [Node.js](https://nodejs.org/en/) (v18+)
+- [Python](https://www.python.org/) (3.10+)
+- A [Groq API Key](https://console.groq.com/keys)
+- A [GitHub Personal Access Token](https://github.com/settings/tokens) (with `repo` permissions)
 
-Built with Next.js, FastAPI, LangGraph, and Llama 3 via Groq.
+### 2. Environment Setup
+Clone the repository:
+```bash
+git clone https://github.com/PxA-Labs/AutoMaintainer.git
+cd AutoMaintainer
+```
+
+Create a `.env` file in the root directory:
+```bash
+GROQ_API_KEY=your_groq_api_key_here
+GITHUB_TOKEN=your_github_token_here
+```
+
+### 3. Run the Backend (FastAPI + LangGraph)
+Open a terminal and navigate to the backend directory:
+```bash
+cd backend
+pip install -r requirements.txt
+fastapi dev main.py
+```
+*The backend will run on `http://127.0.0.1:8000`.*
+
+### 4. Run the Frontend (Next.js)
+Open a new terminal and navigate to the dashboard directory:
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+*The dashboard will run on `http://localhost:3000`.*
+
+---
+
+## 🎮 Usage
+
+1. Open `http://localhost:3000` in your browser.
+2. In the sidebar under **Configuration**, click on the **Target Repository** and enter a repository you own (e.g., `your-username/your-repo`).
+   - *Note: Your GitHub Token must have push access to this repository!*
+3. Click **Start Agents**.
+4. Watch the dashboard UI light up as the Architect scans your repo. Open your target repository on GitHub in another tab to watch the Issues and Pull Requests appear in real-time!
+
+---
+
+## 🏗️ Architecture
+Curious how it works under the hood? Read our [Architecture Documentation](./ARCHITECTURE.md) to see how the 5-agent LangGraph topology operates.
+
+---
+
+## 🤝 Contributing
+Want to add a new Agent or improve the dashboard? Check out our [Contributing Guidelines](./CONTRIBUTING.md).
+
+---
+
+## 📜 License
+This project is licensed under the [MIT License](./LICENSE).
