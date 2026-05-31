@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 
 gitnexus_process = None
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global gitnexus_process
@@ -20,17 +21,18 @@ async def lifespan(app: FastAPI):
         gitnexus_process = subprocess.Popen(
             ["npx", "-y", "gitnexus@latest", "serve"],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
         )
         print("GitNexus server started on port 4747")
     except Exception as e:
         print(f"Failed to start GitNexus: {e}")
-    
+
     yield
-    
+
     if gitnexus_process:
         gitnexus_process.terminate()
         print("GitNexus server stopped")
+
 
 app = FastAPI(title="AutoMaintainer Backend", lifespan=lifespan)
 
