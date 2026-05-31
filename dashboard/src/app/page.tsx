@@ -10,6 +10,7 @@ export default function Home() {
   const [repoUrl, setRepoUrl] = useState("owner/repo");
   const [isEditingRepo, setIsEditingRepo] = useState(false);
   const [targetIssue, setTargetIssue] = useState("");
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [logs, setLogs] = useState([
     { time: "00:00:00", agent: "System", msg: "Connecting to backend...", color: "text-zinc-500" }
   ]);
@@ -156,6 +157,17 @@ export default function Home() {
                     placeholder="Issue number (e.g. 1)"
                   />
               </div>
+              
+              <div className="flex flex-col p-2 rounded-lg hover:bg-zinc-800/50 transition-colors text-sm gap-2">
+                  <button 
+                    onClick={() => setActiveTab(activeTab === 'gitnexus' ? 'dashboard' : 'gitnexus')}
+                    className="w-full py-2 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 rounded-md border border-indigo-500/20 transition-all font-medium flex items-center justify-center gap-2 shadow-lg"
+                  >
+                    <FileCode className="w-4 h-4" />
+                    {activeTab === 'gitnexus' ? 'Back to Dashboard' : 'Open Code Graph'}
+                  </button>
+              </div>
+
               <LinkRow icon={<Settings className="w-4 h-4 text-zinc-400" />} label="Settings" />
             </div>
           </div>
@@ -196,7 +208,17 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Dashboard Grid */}
+        {/* Dashboard Grid or GitNexus */}
+        {activeTab === 'gitnexus' ? (
+          <main className="flex-1 w-full h-full relative">
+            <iframe 
+              src="https://gitnexus.vercel.app/" 
+              className="absolute inset-0 w-full h-full border-none bg-white/5"
+              title="GitNexus Graph Explorer"
+              allow="clipboard-write; clipboard-read"
+            />
+          </main>
+        ) : (
         <main className="flex-1 overflow-y-auto p-8">
           <div className="max-w-6xl mx-auto space-y-6">
             
@@ -277,6 +299,7 @@ export default function Home() {
 
           </div>
         </main>
+        )}
       </div>
     </div>
   );

@@ -10,6 +10,12 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 
+# Install Node.js v22
+RUN apt-get update && apt-get install -y curl \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy python backend requirements
 COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
