@@ -10,6 +10,10 @@ from typing import TypedDict, Annotated
 import asyncio
 from github import Github
 import uuid
+import json
+from contextvars import ContextVar
+
+current_ws = ContextVar("current_ws")
 
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -60,10 +64,26 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
 
                 llm = ChatGroq(model="llama-3.3-70b-versatile", api_key=GROQ_API_KEY)
                 agent = create_react_agent(llm, tools=tools)
-                res = await agent.ainvoke(
-                    {"messages": [("system", system_prompt), ("user", user_prompt)]}
-                )
-                return res["messages"][-1].content
+
+                final_res = None
+                async for chunk in agent.astream(
+                    {"messages": [("system", system_prompt), ("user", user_prompt)]},
+                    stream_mode="updates",
+                ):
+                    ws = current_ws.get(None)
+                    if "tools" in chunk and ws:
+                        for tm in chunk["tools"].get("messages", []):
+                            await ws.broadcast(
+                                {
+                                    "agent": "GitNexus",
+                                    "msg": f"🔍 Searched code graph using '{tm.name}'...",
+                                    "color": "text-purple-400",
+                                }
+                            )
+                    if "agent" in chunk:
+                        final_res = chunk["agent"]
+
+                return final_res["messages"][-1].content
     except Exception as e:
         print(f"MCP Tool execution fallback: {e}")
         return run_llm(system_prompt, user_prompt)
@@ -548,6 +568,8 @@ app = workflow.compile()
 
 
 async def run_agent_loop(repo_name: str, ws_manager, target_issue: int | None = None):
+    current_ws.set(ws_manager)
+
     if repo_name.startswith("http://") or repo_name.startswith("https://"):
         from urllib.parse import urlparse
 
