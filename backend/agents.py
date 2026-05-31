@@ -3,6 +3,9 @@ from dotenv import load_dotenv
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.graph import StateGraph, END
 from litellm import completion
+from langchain_groq import ChatGroq
+from langgraph.prebuilt import create_react_agent
+import httpx
 from typing import TypedDict, Annotated
 import asyncio
 from github import Github
@@ -41,7 +44,32 @@ def run_llm(system_prompt: str, user_prompt: str):
     return response.choices[0].message.content
 
 
-def architect_node(state: AgentState):
+async def run_llm_with_tools(system_prompt: str, user_prompt: str):
+    try:
+        from mcp.client.sse import sse_client
+        from mcp.client.session import ClientSession
+        from langchain_mcp_adapters.tools import load_mcp_tools
+
+        async with httpx.AsyncClient() as client:
+            await client.get("http://localhost:4747/sse", timeout=2.0)
+
+        async with sse_client("http://localhost:4747/sse") as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                tools = await load_mcp_tools(session)
+
+                llm = ChatGroq(model="llama-3.3-70b-versatile", api_key=GROQ_API_KEY)
+                agent = create_react_agent(llm, tools=tools)
+                res = await agent.ainvoke(
+                    {"messages": [("system", system_prompt), ("user", user_prompt)]}
+                )
+                return res["messages"][-1].content
+    except Exception as e:
+        print(f"MCP Tool execution fallback: {e}")
+        return run_llm(system_prompt, user_prompt)
+
+
+async def architect_node(state: AgentState):
     repo = state["repo_name"]
     target_issue = state.get("target_issue")
     tree_content = ""
@@ -106,7 +134,7 @@ def architect_node(state: AgentState):
     system_prompt = "You are the Principal Architect. Analyze the provided repository root file structure and README context. Assess the current state of the project (is it working, what tech stack is it using) and give a strict 2-sentence directive on what the team should build or fix next."
     user_prompt = f"Repo: {repo}\n\nFiles:\n{tree_content}\n\nREADME:\n{readme_content[:1000]}\n\nGenerate the architect_directive."
 
-    directive = run_llm(system_prompt, user_prompt)
+    directive = await run_llm_with_tools(system_prompt, user_prompt)
     state["architect_directive"] = directive
 
     state["log_messages"].append(
@@ -133,7 +161,7 @@ def architect_node(state: AgentState):
     return state
 
 
-def brainstormer_node(state: AgentState):
+async def brainstormer_node(state: AgentState):
     repo = state["repo_name"]
     directive = state.get("architect_directive", "")
     target_issue = state.get("target_issue")
@@ -159,7 +187,7 @@ def brainstormer_node(state: AgentState):
     system_prompt = "You are the Visionary Agent. Your job is to brainstorm one single, highly innovative feature that fulfills the Architect's directive."
     user_prompt = f"Architect Directive:\n{directive}\n\nBrainstorm a new feature for {repo}. Keep it under 3 sentences."
 
-    idea = run_llm(system_prompt, user_prompt)
+    idea = await run_llm_with_tools(system_prompt, user_prompt)
     state["idea"] = idea
 
     state["log_messages"].append(
@@ -214,7 +242,7 @@ def brainstormer_node(state: AgentState):
     return state
 
 
-def pm_node(state: AgentState):
+async def pm_node(state: AgentState):
     idea = state["idea"]
     directive = state.get("architect_directive", "")
     repo = state["repo_name"]
@@ -253,7 +281,7 @@ def pm_node(state: AgentState):
 
     system_prompt = "You are the Product Manager. Review the proposed feature against the Architect's directive. Decide if we should build it ('APPROVED') or not ('REJECTED'). Start your response with APPROVED or REJECTED, then give a 1 sentence reason."
 
-    decision = run_llm(
+    decision = await run_llm_with_tools(
         system_prompt, f"Directive: {directive}\n\nReview this idea: {idea}"
     )
     state["pm_decision"] = decision
@@ -297,7 +325,7 @@ def should_implement(state: AgentState):
     return "implementer" if state.get("pm_decision", "").startswith("APPROVED") else END
 
 
-def implementer_node(state: AgentState):
+async def implementer_node(state: AgentState):
     idea = state["idea"]
     issue_number = state.get("issue_number")
     iteration = state.get("iteration", 0)
@@ -311,7 +339,7 @@ def implementer_node(state: AgentState):
         system_prompt = "You are the Implementer Agent. Write a tiny python script that implements the core logic of the idea. Keep it very short. Output ONLY the Python script."
         user_prompt = f"Write code for: {idea}"
 
-    code = run_llm(system_prompt, user_prompt)
+    code = await run_llm_with_tools(system_prompt, user_prompt)
     state["code"] = code
 
     state["log_messages"].append(
@@ -426,14 +454,14 @@ def implementer_node(state: AgentState):
     return state
 
 
-def maintainer_node(state: AgentState):
+async def maintainer_node(state: AgentState):
     code = state["code"]
     repo_name = state["repo_name"]
     pr_number = state.get("pr_number")
     iteration = state.get("iteration", 0)
 
     system_prompt = "You are the Maintainer. Review the code. Say 'LGTM' if it looks okay, or point out a flaw."
-    review = run_llm(system_prompt, f"Review this code:\n{code}")
+    review = await run_llm_with_tools(system_prompt, f"Review this code:\n{code}")
     state["review"] = review
 
     state["log_messages"].append(

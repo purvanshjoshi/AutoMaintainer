@@ -7,3 +7,7 @@ pygithub
 python-dotenv
 websockets
 pydantic
+mcp
+langchain-mcp-adapters
+langchain-groq 
+ 
