@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
     # Start the GitNexus MCP server in the background
     try:
         gitnexus_process = subprocess.Popen(
-            ["npx", "-y", "gitnexus@latest", "serve"],
+            ["gitnexus", "serve"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

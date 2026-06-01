@@ -55,8 +55,8 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
         from langchain_mcp_adapters.tools import load_mcp_tools
         
         server_params = StdioServerParameters(
-            command="npx",
-            args=["-y", "gitnexus@latest", "mcp"]
+            command="gitnexus",
+            args=["mcp"]
         )
         
         async with stdio_client(server_params) as (read, write):

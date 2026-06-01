@@ -10,10 +10,11 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 
-# Install Node.js v22
+# Install Node.js v22 and globally install gitnexus to avoid npx cache destructure bugs
 RUN apt-get update && apt-get install -y curl \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
+    && npm install -g gitnexus@latest \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy python backend requirements
