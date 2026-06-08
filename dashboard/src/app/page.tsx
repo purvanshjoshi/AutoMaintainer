@@ -2,8 +2,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { BrainCircuit, GitPullRequest, Search, FileCode, CheckCircle, Activity, GitBranch, Settings, Terminal, Play, Square } from "lucide-react";
+import { BrainCircuit, GitPullRequest, Search, FileCode, CheckCircle, Activity, GitBranch, Settings, Terminal, Play, Square, Code } from "lucide-react";
 import { motion } from "framer-motion";
+import WebIDE from "../components/WebIDE";
 
 export default function Home() {
   const [isRunning, setIsRunning] = useState(false);
@@ -159,13 +160,22 @@ export default function Home() {
               </div>
               
               <div className="flex flex-col p-2 rounded-lg hover:bg-zinc-800/50 transition-colors text-sm gap-2">
-                  <button 
-                    onClick={() => setActiveTab(activeTab === 'gitnexus' ? 'dashboard' : 'gitnexus')}
-                    className="w-full py-2 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 rounded-md border border-indigo-500/20 transition-all font-medium flex items-center justify-center gap-2 shadow-lg"
-                  >
-                    <FileCode className="w-4 h-4" />
-                    {activeTab === 'gitnexus' ? 'Back to Dashboard' : 'Open Code Graph'}
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      onClick={() => setActiveTab(activeTab === 'gitnexus' ? 'dashboard' : 'gitnexus')}
+                      className={`w-full py-2 rounded-md border transition-all font-medium flex items-center justify-center gap-2 shadow-lg ${activeTab === 'gitnexus' ? 'bg-indigo-500 text-white border-indigo-400' : 'bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 border-indigo-500/20'}`}
+                    >
+                      <FileCode className="w-4 h-4" />
+                      Code Graph
+                    </button>
+                    <button 
+                      onClick={() => setActiveTab(activeTab === 'ide' ? 'dashboard' : 'ide')}
+                      className={`w-full py-2 rounded-md border transition-all font-medium flex items-center justify-center gap-2 shadow-lg ${activeTab === 'ide' ? 'bg-blue-500 text-white border-blue-400' : 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border-blue-500/20'}`}
+                    >
+                      <Code className="w-4 h-4" />
+                      Web IDE
+                    </button>
+                  </div>
               </div>
 
               <LinkRow icon={<Settings className="w-4 h-4 text-zinc-400" />} label="Settings" />
@@ -208,28 +218,55 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Dashboard Grid or GitNexus */}
-        {activeTab === 'gitnexus' ? (
-          <main className="flex-1 p-8 flex flex-col items-center justify-center text-center">
-            <div className="max-w-md space-y-6">
-              <div className="w-16 h-16 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-[0_0_30px_-5px_rgba(99,102,241,0.2)]">
-                <FileCode className="w-8 h-8 text-indigo-400" />
+          {/* Dashboard Grid, GitNexus, or IDE */}
+          {activeTab === 'ide' ? (
+            <main className="flex-1 flex flex-col overflow-hidden">
+              <div className="flex-1 min-h-0">
+                <WebIDE repoUrl={repoUrl} />
               </div>
-              <h2 className="text-xl font-bold text-white tracking-tight">Code Graph Active in Backend</h2>
-              <p className="text-zinc-400 text-sm leading-relaxed">
-                The GitNexus MCP server is running successfully in the cloud on Port 4747. The AutoMaintainer AI agents are using it to intelligently navigate your repository!
-              </p>
-              <div className="bg-[#0d0d0d] border border-zinc-800/80 rounded-xl p-5 mt-6 text-left shadow-lg">
-                <p className="text-xs text-zinc-500 mb-2 font-medium uppercase tracking-wider">Want to view the graph?</p>
-                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">Because GitNexus is a Zero-Server tool, its Web UI strictly connects to your local machine for privacy. To view the graph locally, run this in your terminal:</p>
-                <div className="bg-black/50 p-3 rounded-lg border border-zinc-800 flex items-center gap-3">
-                  <Terminal className="w-4 h-4 text-zinc-500 shrink-0" />
-                  <code className="text-xs text-emerald-400 font-mono">npx gitnexus@latest serve</code>
+              <div className="h-48 border-t border-[#333333] bg-[#1e1e1e] flex flex-col shrink-0">
+                  <div className="h-8 bg-[#252526] flex items-center px-4 gap-2 shrink-0 shadow-sm border-b border-[#333333]">
+                    <Terminal className="w-3.5 h-3.5 text-zinc-500" />
+                    <span className="text-xs font-mono text-zinc-400">agent_execution_log.sh</span>
+                  </div>
+                  <div className="p-3 font-mono text-[11px] text-zinc-400 overflow-y-auto custom-scrollbar space-y-1.5 flex-1 flex flex-col">
+                    {logs.map((log, i) => (
+                      <LogLine key={i} time={log.time} agent={log.agent} msg={log.msg} color={log.color} />
+                    ))}
+                    {isRunning && (
+                      <motion.div 
+                        initial={{ opacity: 0 }} 
+                        animate={{ opacity: 1 }} 
+                        transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                        className="text-zinc-500 mt-auto"
+                      >
+                        _
+                      </motion.div>
+                    )}
+                  </div>
+              </div>
+            </main>
+          ) : activeTab === 'gitnexus' ? (
+            <main className="flex-1 p-8 flex flex-col items-center justify-center text-center">
+              <div className="max-w-md space-y-6">
+                <div className="w-16 h-16 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-[0_0_30px_-5px_rgba(99,102,241,0.2)]">
+                  <FileCode className="w-8 h-8 text-indigo-400" />
+                </div>
+                <h2 className="text-xl font-bold text-white tracking-tight">Code Graph Active in Backend</h2>
+                <p className="text-zinc-400 text-sm leading-relaxed">
+                  The GitNexus MCP server is running successfully in the cloud on Port 4747. The AutoMaintainer AI agents are using it to intelligently navigate your repository!
+                </p>
+                <div className="bg-[#0d0d0d] border border-zinc-800/80 rounded-xl p-5 mt-6 text-left shadow-lg">
+                  <p className="text-xs text-zinc-500 mb-2 font-medium uppercase tracking-wider">Want to view the graph?</p>
+                  <p className="text-xs text-zinc-400 mb-4 leading-relaxed">Because GitNexus is a Zero-Server tool, its Web UI strictly connects to your local machine for privacy. To view the graph locally, run this in your terminal:</p>
+                  <div className="bg-black/50 p-3 rounded-lg border border-zinc-800 flex items-center gap-3">
+                    <Terminal className="w-4 h-4 text-zinc-500 shrink-0" />
+                    <code className="text-xs text-emerald-400 font-mono">npx gitnexus@latest serve</code>
+                  </div>
                 </div>
               </div>
-            </div>
-          </main>
-        ) : (
+            </main>
+          ) : (
         <main className="flex-1 overflow-y-auto p-8">
           <div className="max-w-6xl mx-auto space-y-6">
             
