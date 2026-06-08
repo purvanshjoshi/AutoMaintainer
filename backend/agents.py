@@ -195,14 +195,25 @@ async def architect_node(state: AgentState):
     if not os.path.exists(repo_dir):
         try:
             repo_url = f"https://github.com/{repo}.git"
-            subprocess.run(["git", "clone", repo_url, repo_dir], check=True)
+            clone_proc = await asyncio.create_subprocess_exec(
+                "git", "clone", repo_url, repo_dir
+            )
+            await clone_proc.communicate()
         except Exception as e:
             print(f"Failed to clone repo: {e}")
 
     if not os.path.exists(f"{repo_dir}/.gitnexus"):
         try:
-            subprocess.run(["gitnexus", "analyze"], cwd=repo_dir, check=True)
-            subprocess.run(["gitnexus", "index"], cwd=repo_dir, check=True)
+            # Run gitnexus asynchronously so it doesn't block the FastAPI event loop
+            analyze_proc = await asyncio.create_subprocess_exec(
+                "gitnexus", "analyze", cwd=repo_dir
+            )
+            await analyze_proc.communicate()
+
+            index_proc = await asyncio.create_subprocess_exec(
+                "gitnexus", "index", cwd=repo_dir
+            )
+            await index_proc.communicate()
         except Exception as e:
             print(f"Failed to analyze repo with GitNexus: {e}")
 
