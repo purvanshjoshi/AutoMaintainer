@@ -102,15 +102,6 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 
-# Serve the static Next.js frontend if the out directory exists
-if os.path.exists("../dashboard/out"):
-    app.mount(
-        "/", StaticFiles(directory="../dashboard/out", html=True), name="dashboard"
-    )
-elif os.path.exists("dashboard/out"):  # In docker container
-    app.mount("/", StaticFiles(directory="dashboard/out", html=True), name="dashboard")
-
-
 @app.get("/repo/{repo_name:path}/tree")
 def get_repo_tree(repo_name: str):
     base_tmp = os.path.abspath("/tmp")
@@ -197,3 +188,11 @@ def get_repo_file(repo_name: str, file_path: str):
         raise HTTPException(
             status_code=500, detail="An internal error occurred while reading the file"
         )
+
+# Serve the static Next.js frontend if the out directory exists
+if os.path.exists("../dashboard/out"):
+    app.mount(
+        "/", StaticFiles(directory="../dashboard/out", html=True), name="dashboard"
+    )
+elif os.path.exists("dashboard/out"):  # In docker container
+    app.mount("/", StaticFiles(directory="dashboard/out", html=True), name="dashboard")
