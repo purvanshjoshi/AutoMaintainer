@@ -220,8 +220,31 @@ export default function Home() {
 
           {/* Dashboard Grid, GitNexus, or IDE */}
           {activeTab === 'ide' ? (
-            <main className="flex-1 overflow-hidden">
-              <WebIDE repoUrl={repoUrl} />
+            <main className="flex-1 flex flex-col overflow-hidden">
+              <div className="flex-1 min-h-0">
+                <WebIDE repoUrl={repoUrl} />
+              </div>
+              <div className="h-48 border-t border-[#333333] bg-[#1e1e1e] flex flex-col shrink-0">
+                  <div className="h-8 bg-[#252526] flex items-center px-4 gap-2 shrink-0 shadow-sm border-b border-[#333333]">
+                    <Terminal className="w-3.5 h-3.5 text-zinc-500" />
+                    <span className="text-xs font-mono text-zinc-400">agent_execution_log.sh</span>
+                  </div>
+                  <div className="p-3 font-mono text-[11px] text-zinc-400 overflow-y-auto custom-scrollbar space-y-1.5 flex-1 flex flex-col">
+                    {logs.map((log, i) => (
+                      <LogLine key={i} time={log.time} agent={log.agent} msg={log.msg} color={log.color} />
+                    ))}
+                    {isRunning && (
+                      <motion.div 
+                        initial={{ opacity: 0 }} 
+                        animate={{ opacity: 1 }} 
+                        transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                        className="text-zinc-500 mt-auto"
+                      >
+                        _
+                      </motion.div>
+                    )}
+                  </div>
+              </div>
             </main>
           ) : activeTab === 'gitnexus' ? (
             <main className="flex-1 p-8 flex flex-col items-center justify-center text-center">

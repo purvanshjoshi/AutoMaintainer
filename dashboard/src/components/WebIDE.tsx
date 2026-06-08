@@ -42,9 +42,10 @@ const FileTreeNode = ({
 
   return (
     <div>
-      <div
+      <button
         onClick={handleToggle}
-        className={`flex items-center py-1 px-2 cursor-pointer select-none text-sm font-sans transition-colors ${
+        aria-expanded={isDir ? isOpen : undefined}
+        className={`flex items-center w-full text-left py-1 px-2 cursor-pointer select-none text-sm font-sans transition-colors ${
           isActive ? "bg-[#37373d] text-white" : "text-[#cccccc] hover:bg-[#2a2d2e] hover:text-white"
         }`}
         style={{ paddingLeft: `${level * 12 + 8}px` }}
@@ -62,7 +63,7 @@ const FileTreeNode = ({
           )}
         </span>
         <span className="truncate">{node.name}</span>
-      </div>
+      </button>
       {isDir && isOpen && node.children && (
         <div>
           {node.children.map((child, idx) => (
@@ -89,29 +90,35 @@ export default function WebIDE({ repoUrl }: WebIDEProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
     const fetchTree = async () => {
       setLoadingTree(true);
       setError(null);
       try {
         const protocol = window.location.protocol;
         const host = window.location.host;
-        const res = await fetch(`${protocol}//${host}/repo/${encodeURIComponent(repoUrl)}/tree`);
+        const res = await fetch(`${protocol}//${host}/repo/${encodeURIComponent(repoUrl)}/tree`, {
+          signal: controller.signal
+        });
         if (!res.ok) {
           throw new Error("Repository not found or API error");
         }
         const data = await res.json();
         setTree(data);
-      } catch (err: any) {
-        setError(err.message || "Failed to fetch repository tree");
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setError(err instanceof Error ? err.message : String(err) || "Failed to fetch repository tree");
       } finally {
         setLoadingTree(false);
       }
     };
     fetchTree();
+    return () => controller.abort();
   }, [repoUrl]);
 
   useEffect(() => {
     if (!activeFile) return;
+    const controller = new AbortController();
     const fetchFile = async () => {
       setLoadingFile(true);
       setFileContent(null);
@@ -119,20 +126,23 @@ export default function WebIDE({ repoUrl }: WebIDEProps) {
         const protocol = window.location.protocol;
         const host = window.location.host;
         const res = await fetch(
-          `${protocol}//${host}/repo/${encodeURIComponent(repoUrl)}/file?file_path=${encodeURIComponent(activeFile)}`
+          `${protocol}//${host}/repo/${encodeURIComponent(repoUrl)}/file?file_path=${encodeURIComponent(activeFile)}`,
+          { signal: controller.signal }
         );
         if (!res.ok) {
           throw new Error("Cannot read binary file or file not found");
         }
         const data = await res.json();
         setFileContent(data.content);
-      } catch (err: any) {
-        setFileContent(`// Error loading file: ${err.message}`);
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setFileContent(`// Error loading file: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
         setLoadingFile(false);
       }
     };
     fetchFile();
+    return () => controller.abort();
   }, [activeFile, repoUrl]);
 
   const getLanguage = (filename: string) => {
