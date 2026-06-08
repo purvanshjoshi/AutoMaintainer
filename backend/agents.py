@@ -11,6 +11,7 @@ import asyncio
 from github import Github
 import uuid
 import json
+from backend.ast_indexer import CodebaseMapper
 from contextvars import ContextVar
 
 current_ws = ContextVar("current_ws")
@@ -202,8 +203,35 @@ async def architect_node(state: AgentState):
         except Exception as e:
             print(f"Failed to analyze repo with GitNexus: {e}")
 
-    system_prompt = "You are the Principal Architect. Analyze the provided repository root file structure and README context. Assess the current state of the project (is it working, what tech stack is it using) and give a strict 2-sentence directive on what the team should build or fix next."
-    user_prompt = f"Repo: {repo}\n\nFiles:\n{tree_content}\n\nREADME:\n{readme_content[:1000]}\n\nGenerate the architect_directive."
+    # Generate AST Map for LLM Context
+    ast_context_str = "No AST available."
+    try:
+        mapper = CodebaseMapper(repo_dir)
+        arch_map = mapper.generate_architecture_map()
+        
+        ast_lines = ["\nRepository AST Structure:"]
+        for file_path, data in arch_map.items():
+            classes = data.get("classes", [])
+            functions = data.get("functions", [])
+            if not classes and not functions:
+                continue
+                
+            ast_lines.append(f"File: {file_path}")
+            if classes:
+                ast_lines.append("  Classes:")
+                for c in classes:
+                    ast_lines.append(f"    - {c['name']} (L{c['start_line']}-L{c['end_line']})")
+            if functions:
+                ast_lines.append("  Functions:")
+                for f in functions:
+                    ast_lines.append(f"    - {f['name']} (L{f['start_line']}-L{f['end_line']})")
+                    
+        ast_context_str = "\n".join(ast_lines)
+    except Exception as e:
+        print(f"AST parsing failed: {e}")
+
+    system_prompt = "You are the Principal Architect. Analyze the provided repository root file structure, AST structure, and README context. Assess the current state of the project (is it working, what tech stack is it using) and give a strict 2-sentence directive on what the team should build or fix next."
+    user_prompt = f"Repo: {repo}\n\nFiles:\n{tree_content}\n\nREADME:\n{readme_content[:1000]}\n\n{ast_context_str}\n\nGenerate the architect_directive."
 
     directive = await run_llm_with_tools(system_prompt, user_prompt)
     state["architect_directive"] = directive
