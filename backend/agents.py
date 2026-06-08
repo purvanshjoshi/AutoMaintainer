@@ -93,9 +93,15 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
                 if not keys:
                     ws = current_ws.get(None)
                     if ws:
-                        await ws.broadcast({"agent": "System", "msg": "[ERROR] No GROQ_API_KEY found in environment. Agents cannot run.", "color": "text-red-500"})
+                        await ws.broadcast(
+                            {
+                                "agent": "System",
+                                "msg": "[ERROR] No GROQ_API_KEY found in environment. Agents cannot run.",
+                                "color": "text-red-500",
+                            }
+                        )
                     raise ValueError("No GROQ_API_KEY found in environment")
-                    
+
                 llms = [
                     ChatGroq(model="llama-3.3-70b-versatile", api_key=k) for k in keys
                 ]
@@ -201,9 +207,13 @@ async def architect_node(state: AgentState):
     import shutil
 
     repo_dir = f"/tmp/{repo.replace('/', '_')}"
-    repo_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{repo}.git" if GITHUB_TOKEN else f"https://github.com/{repo}.git"
+    repo_url = (
+        f"https://x-access-token:{GITHUB_TOKEN}@github.com/{repo}.git"
+        if GITHUB_TOKEN
+        else f"https://github.com/{repo}.git"
+    )
     safe_repo_url = f"https://github.com/{repo}.git"
-    
+
     if not os.path.exists(repo_dir):
         try:
             clone_proc = await asyncio.create_subprocess_exec(
@@ -215,8 +225,7 @@ async def architect_node(state: AgentState):
     else:
         try:
             pull_proc = await asyncio.create_subprocess_exec(
-                "git", "pull", "--ff-only",
-                cwd=repo_dir
+                "git", "pull", "--ff-only", cwd=repo_dir
             )
             await pull_proc.communicate()
         except Exception as e:
@@ -235,13 +244,17 @@ async def architect_node(state: AgentState):
             )
             await index_proc.communicate()
         except Exception as e:
-            warn_msg = f"⚠️ GitNexus indexing failed (agents will use raw LLM context): {e}"
+            warn_msg = (
+                f"⚠️ GitNexus indexing failed (agents will use raw LLM context): {e}"
+            )
             state["log_messages"].append(
                 {"agent": "System", "msg": warn_msg, "color": "text-amber-400"}
             )
             ws = current_ws.get(None)
             if ws:
-                await ws.broadcast({"agent": "System", "msg": warn_msg, "color": "text-amber-400"})
+                await ws.broadcast(
+                    {"agent": "System", "msg": warn_msg, "color": "text-amber-400"}
+                )
             print(f"Failed to analyze repo with GitNexus: {e}")
 
     # Generate AST Map for LLM Context
@@ -493,7 +506,11 @@ async def pm_node(state: AgentState):
 
 
 def should_implement(state: AgentState):
-    return "implementer" if state.get("pm_decision", "").strip().upper().startswith("APPROVED") else END
+    return (
+        "implementer"
+        if state.get("pm_decision", "").strip().upper().startswith("APPROVED")
+        else END
+    )
 
 
 async def implementer_node(state: AgentState):

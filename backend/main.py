@@ -214,6 +214,7 @@ def get_repo_file(repo_name: str, file_path: str):
             status_code=500, detail="An internal error occurred while reading the file"
         )
 
+
 # Serve the static Next.js frontend if the out directory exists
 if os.path.exists("../dashboard/out"):
     app.mount(
