@@ -59,21 +59,21 @@ def run_llm(system_prompt: str, user_prompt: str):
         raise ValueError("No GROQ_API_KEY found in environment")
 
     for idx, key in enumerate(keys):
-        try:
-            response = completion(
-                model="groq/llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                api_key=key,
-            )
-            return response.choices[0].message.content
-        except RateLimitError as e:
-            if idx == len(keys) - 1:
-                raise e
-            print(f"Key {idx} rate limited, falling back to next key...")
-    return ""
+        for model_name in ["groq/llama-3.3-70b-versatile", "groq/llama3-8b-8192"]:
+            try:
+                response = completion(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    api_key=key,
+                )
+                return response.choices[0].message.content
+            except RateLimitError:
+                print(f"Key {idx} rate limited on {model_name}, falling back...")
+                continue
+    raise Exception("All Groq keys and models are currently rate limited. Please wait a minute.")
 
 
 async def run_llm_with_tools(system_prompt: str, user_prompt: str):
@@ -104,6 +104,8 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
 
                 llms = [
                     ChatGroq(model="llama-3.3-70b-versatile", api_key=k) for k in keys
+                ] + [
+                    ChatGroq(model="llama3-8b-8192", api_key=k) for k in keys
                 ]
                 if len(llms) > 1:
                     llm = llms[0].with_fallbacks(llms[1:])
@@ -137,6 +139,13 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
             return run_llm(system_prompt, user_prompt)
         except Exception as e2:
             print(f"LLM execution completely failed: {e2}")
+            ws = current_ws.get(None)
+            if ws:
+                asyncio.create_task(ws.broadcast({
+                    "agent": "System",
+                    "msg": f"LLM Rate Limit Reached: {str(e2)}. Please wait a minute.",
+                    "color": "text-red-500"
+                }))
             return f"[ERROR] LLM execution failed: {e2}"
 
 
