@@ -1,9 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { ChevronRight, ChevronDown, File as FileIcon, FolderOpen, Folder } from "lucide-react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { ChevronRight, ChevronDown, File as FileIcon, FolderOpen, Folder, Save } from "lucide-react";
+import Editor from "@monaco-editor/react";
 
 interface TreeNode {
   name: string;
@@ -104,6 +103,9 @@ export default function WebIDE({ repoUrl }: WebIDEProps) {
   const [loadingTree, setLoadingTree] = useState(true);
   const [loadingFile, setLoadingFile] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editedContent, setEditedContent] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const hasUnsavedChanges = editedContent !== null && editedContent !== fileContent;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -148,6 +150,7 @@ export default function WebIDE({ repoUrl }: WebIDEProps) {
         }
         const data = await res.json();
         setFileContent(data.content);
+        setEditedContent(data.content);
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") return;
         setFileContent(`// Error loading file: ${err instanceof Error ? err.message : String(err)}`);
@@ -158,6 +161,39 @@ export default function WebIDE({ repoUrl }: WebIDEProps) {
     fetchFile();
     return () => controller.abort();
   }, [activeFile, repoUrl]);
+
+  const handleSave = async () => {
+    if (!activeFile || !editedContent) return;
+    setIsSaving(true);
+    try {
+      const backendUrl = getBackendUrl();
+      const res = await fetch(`${backendUrl}/repo/${encodeURIComponent(repoUrl)}/file`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_path: activeFile,
+          content: editedContent
+        })
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      setFileContent(editedContent);
+    } catch (err) {
+      alert("Failed to save file: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeFile, editedContent, repoUrl]);
 
   const getLanguage = (filename: string) => {
     const ext = filename.split(".").pop()?.toLowerCase();
@@ -208,11 +244,20 @@ export default function WebIDE({ repoUrl }: WebIDEProps) {
         {activeFile ? (
           <>
             {/* Editor Tab Bar */}
-            <div className="flex bg-[#252526] h-9 items-end shrink-0 overflow-x-auto custom-scrollbar">
+            <div className="flex bg-[#252526] h-9 items-end shrink-0 overflow-x-auto custom-scrollbar justify-between pr-2">
               <div className="bg-[#1e1e1e] text-[#cccccc] px-3 py-2 flex items-center gap-2 text-sm border-t border-[#007acc] min-w-fit">
                 <FileIcon className="w-3.5 h-3.5 text-[#519aba]" />
                 {activeFile.split("/").pop()}
+                {hasUnsavedChanges && <span className="w-2 h-2 bg-white rounded-full ml-1"></span>}
               </div>
+              <button 
+                onClick={handleSave}
+                disabled={!hasUnsavedChanges || isSaving}
+                className={`flex items-center gap-1 px-3 py-1 text-xs rounded transition-colors mb-1 ${hasUnsavedChanges ? 'bg-[#0e639c] text-white hover:bg-[#1177bb]' : 'text-zinc-500 cursor-not-allowed'}`}
+              >
+                <Save className="w-3 h-3" />
+                {isSaving ? "Saving..." : "Save"}
+              </button>
             </div>
             
             {/* Editor Breadcrumbs */}
@@ -223,25 +268,23 @@ export default function WebIDE({ repoUrl }: WebIDEProps) {
             </div>
 
             {/* Code Content */}
-            <div className="flex-1 overflow-auto bg-[#1e1e1e] relative">
+            <div className="flex-1 overflow-hidden bg-[#1e1e1e] relative">
               {loadingFile ? (
                 <div className="p-8 text-[#cccccc] text-sm animate-pulse">Loading file content...</div>
               ) : fileContent !== null ? (
-                <SyntaxHighlighter
+                <Editor
+                  height="100%"
+                  theme="vs-dark"
                   language={getLanguage(activeFile)}
-                  style={vscDarkPlus}
-                  customStyle={{
-                    margin: 0,
-                    padding: "16px",
-                    background: "transparent",
-                    fontSize: "14px",
-                    lineHeight: "1.5",
+                  value={editedContent ?? fileContent}
+                  onChange={(value) => setEditedContent(value ?? "")}
+                  options={{
+                    minimap: { enabled: true },
+                    fontSize: 14,
+                    wordWrap: "on",
+                    padding: { top: 16 }
                   }}
-                  showLineNumbers={true}
-                  wrapLines={true}
-                >
-                  {fileContent}
-                </SyntaxHighlighter>
+                />
               ) : null}
             </div>
           </>

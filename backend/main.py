@@ -5,6 +5,8 @@ from fastapi import (
     BackgroundTasks,
     HTTPException,
 )
+from pydantic import BaseModel
+from github import Github
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -83,6 +85,11 @@ class StartRequest(BaseModel):
     repo_name: str
     target_issue: Optional[int] = None
 
+class FileUpdateRequest(BaseModel):
+    file_path: str
+    content: str
+    commit_message: Optional[str] = None
+
 
 active_task: Optional[asyncio.Task] = None
 
@@ -96,6 +103,27 @@ async def start_agents(req: StartRequest):
         run_agent_loop(req.repo_name, manager, req.target_issue)
     )
     return {"status": "started"}
+
+@app.post("/repo/{repo_name:path}/file")
+async def update_repo_file(repo_name: str, payload: FileUpdateRequest):
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise HTTPException(status_code=401, detail="GitHub token not configured")
+    gh = Github(token)
+    try:
+        repo = gh.get_repo(repo_name)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Repository not found: {e}")
+    try:
+        file = repo.get_contents(payload.file_path)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"File not found in repo: {e}")
+    message = payload.commit_message or f"Update {payload.file_path} via AutoMaintainer IDE"
+    try:
+        repo.update_file(file.path, message, payload.content, file.sha)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update file: {e}")
+    return {"status": "updated", "message": message}
 
 
 @app.post("/stop")
