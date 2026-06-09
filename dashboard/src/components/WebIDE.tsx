@@ -81,6 +81,22 @@ const FileTreeNode = ({
   );
 };
 
+function getBackendUrl(): string {
+  if (process.env.NEXT_PUBLIC_BACKEND_URL) {
+    return process.env.NEXT_PUBLIC_BACKEND_URL.replace(/\/$/, "");
+  }
+  if (typeof window !== "undefined") {
+    const port = window.location.port;
+    const hostname = window.location.hostname;
+    if (port === "3000") {
+      return `${window.location.protocol}//${hostname}:8000`;
+    }
+    return `${window.location.protocol}//${window.location.host}`;
+  }
+  return "http://localhost:8000";
+}
+
+
 export default function WebIDE({ repoUrl }: WebIDEProps) {
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [activeFile, setActiveFile] = useState<string | null>(null);
@@ -95,9 +111,8 @@ export default function WebIDE({ repoUrl }: WebIDEProps) {
       setLoadingTree(true);
       setError(null);
       try {
-        const protocol = window.location.protocol;
-        const host = window.location.host;
-        const res = await fetch(`${protocol}//${host}/repo/${encodeURIComponent(repoUrl)}/tree`, {
+        const backendUrl = getBackendUrl();
+        const res = await fetch(`${backendUrl}/repo/${encodeURIComponent(repoUrl)}/tree`, {
           signal: controller.signal
         });
         if (!res.ok) {
@@ -123,10 +138,9 @@ export default function WebIDE({ repoUrl }: WebIDEProps) {
       setLoadingFile(true);
       setFileContent(null);
       try {
-        const protocol = window.location.protocol;
-        const host = window.location.host;
+        const backendUrl = getBackendUrl();
         const res = await fetch(
-          `${protocol}//${host}/repo/${encodeURIComponent(repoUrl)}/file?file_path=${encodeURIComponent(activeFile)}`,
+          `${backendUrl}/repo/${encodeURIComponent(repoUrl)}/file?file_path=${encodeURIComponent(activeFile)}`,
           { signal: controller.signal }
         );
         if (!res.ok) {

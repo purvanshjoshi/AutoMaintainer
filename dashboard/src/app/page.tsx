@@ -72,6 +72,12 @@ export default function Home() {
     } else {
       setIsRunning(false);
       setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), agent: "System", msg: "Agent Loop Halted.", color: "text-red-500" }]);
+      try {
+        const backendUrl = getBackendUrl();
+        await fetch(`${backendUrl}/stop`, { method: "POST" });
+      } catch (err) {
+        console.error("Failed to stop agents:", err);
+      }
     }
   };
 
@@ -83,6 +89,11 @@ export default function Home() {
     
     ws.onopen = () => {
       setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), agent: "System", msg: "Connected to AutoMaintainer Core", color: "text-emerald-500" }]);
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), agent: "System", msg: "WebSocket connection error. Check backend connectivity.", color: "text-red-400" }]);
     };
 
     ws.onmessage = (event) => {

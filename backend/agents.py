@@ -33,6 +33,9 @@ def get_all_groq_keys():
     return keys
 
 
+import operator
+
+
 class AgentState(TypedDict):
     repo_name: str
     target_issue: int | None
@@ -45,7 +48,7 @@ class AgentState(TypedDict):
     pr_number: int
     branch_name: str
     iteration: int
-    log_messages: list
+    log_messages: Annotated[list, operator.add]
 
 
 def run_llm(system_prompt: str, user_prompt: str):
@@ -90,9 +93,15 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
                 if not keys:
                     ws = current_ws.get(None)
                     if ws:
-                        await ws.broadcast({"agent": "System", "msg": "[ERROR] No GROQ_API_KEY found in environment. Agents cannot run.", "color": "text-red-500"})
+                        await ws.broadcast(
+                            {
+                                "agent": "System",
+                                "msg": "[ERROR] No GROQ_API_KEY found in environment. Agents cannot run.",
+                                "color": "text-red-500",
+                            }
+                        )
                     raise ValueError("No GROQ_API_KEY found in environment")
-                    
+
                 llms = [
                     ChatGroq(model="llama-3.3-70b-versatile", api_key=k) for k in keys
                 ]
@@ -187,7 +196,7 @@ async def architect_node(state: AgentState):
             try:
                 readme = gh_repo.get_readme()
                 readme_content = readme.decoded_content.decode("utf-8")
-            except:
+            except Exception:
                 readme_content = "No README found."
         except Exception as e:
             tree_content = "Unable to fetch repo tree."
@@ -198,8 +207,13 @@ async def architect_node(state: AgentState):
     import shutil
 
     repo_dir = f"/tmp/{repo.replace('/', '_')}"
-    repo_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{repo}.git" if GITHUB_TOKEN else f"https://github.com/{repo}.git"
-    
+    repo_url = (
+        f"https://x-access-token:{GITHUB_TOKEN}@github.com/{repo}.git"
+        if GITHUB_TOKEN
+        else f"https://github.com/{repo}.git"
+    )
+    safe_repo_url = f"https://github.com/{repo}.git"
+
     if not os.path.exists(repo_dir):
         try:
             clone_proc = await asyncio.create_subprocess_exec(
@@ -207,16 +221,15 @@ async def architect_node(state: AgentState):
             )
             await clone_proc.communicate()
         except Exception as e:
-            print(f"Failed to clone repo: {e}")
+            print(f"Failed to clone repo {safe_repo_url}: {e}")
     else:
         try:
             pull_proc = await asyncio.create_subprocess_exec(
-                "git", "pull", "--ff-only", repo_url,
-                cwd=repo_dir
+                "git", "pull", "--ff-only", cwd=repo_dir
             )
             await pull_proc.communicate()
         except Exception as e:
-            print(f"Failed to pull repo, continuing with cache: {e}")
+            print(f"Failed to pull repo {safe_repo_url}, continuing with cache: {e}")
 
     if not os.path.exists(f"{repo_dir}/.gitnexus"):
         try:
@@ -231,14 +244,38 @@ async def architect_node(state: AgentState):
             )
             await index_proc.communicate()
         except Exception as e:
-            warn_msg = f"⚠️ GitNexus indexing failed (agents will use raw LLM context): {e}"
+            warn_msg = (
+                f"⚠️ GitNexus indexing failed (agents will use raw LLM context): {e}"
+            )
             state["log_messages"].append(
                 {"agent": "System", "msg": warn_msg, "color": "text-amber-400"}
             )
             ws = current_ws.get(None)
             if ws:
-                await ws.broadcast({"agent": "System", "msg": warn_msg, "color": "text-amber-400"})
+                await ws.broadcast(
+                    {"agent": "System", "msg": warn_msg, "color": "text-amber-400"}
+                )
             print(f"Failed to analyze repo with GitNexus: {e}")
+
+            # Clean up partially created .gitnexus cache
+            gitnexus_dir = os.path.join(repo_dir, ".gitnexus")
+            if os.path.exists(gitnexus_dir):
+                try:
+                    shutil.rmtree(gitnexus_dir)
+                    info_msg = "ℹ️ Cleaned up partial GitNexus cache directory."
+                    state["log_messages"].append(
+                        {"agent": "System", "msg": info_msg, "color": "text-zinc-500"}
+                    )
+                    if ws:
+                        await ws.broadcast(
+                            {
+                                "agent": "System",
+                                "msg": info_msg,
+                                "color": "text-zinc-500",
+                            }
+                        )
+                except Exception as clean_err:
+                    print(f"Failed to clean up partial GitNexus cache: {clean_err}")
 
     # Generate AST Map for LLM Context
     ast_context_str = "No AST available."
@@ -453,7 +490,7 @@ async def pm_node(state: AgentState):
     )
     state["pm_decision"] = decision
 
-    is_approved = decision.startswith("APPROVED")
+    is_approved = decision.strip().upper().startswith("APPROVED")
     msg_color = "text-amber-400" if is_approved else "text-red-400"
     state["log_messages"].append(
         {"agent": "Reviewer", "msg": f"Decision: {decision}", "color": msg_color}
@@ -489,7 +526,11 @@ async def pm_node(state: AgentState):
 
 
 def should_implement(state: AgentState):
-    return "implementer" if state.get("pm_decision", "").startswith("APPROVED") else END
+    return (
+        "implementer"
+        if state.get("pm_decision", "").strip().upper().startswith("APPROVED")
+        else END
+    )
 
 
 async def implementer_node(state: AgentState):
@@ -642,7 +683,7 @@ async def maintainer_node(state: AgentState):
         }
     )
 
-    is_lgtm = "LGTM" in review
+    is_lgtm = "LGTM" in review.upper()
 
     if gh and pr_number:
         try:
@@ -688,7 +729,7 @@ async def maintainer_node(state: AgentState):
 
 
 def should_iterate(state: AgentState):
-    if "LGTM" in state.get("review", ""):
+    if "LGTM" in state.get("review", "").upper():
         return END
     if state.get("iteration", 0) >= 3:
         return END

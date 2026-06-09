@@ -84,10 +84,35 @@ class StartRequest(BaseModel):
     target_issue: Optional[int] = None
 
 
+active_task: Optional[asyncio.Task] = None
+
+
 @app.post("/start")
-async def start_agents(req: StartRequest, background_tasks: BackgroundTasks):
-    background_tasks.add_task(run_agent_loop, req.repo_name, manager, req.target_issue)
+async def start_agents(req: StartRequest):
+    global active_task
+    if active_task and not active_task.done():
+        return {"status": "already_running"}
+    active_task = asyncio.create_task(
+        run_agent_loop(req.repo_name, manager, req.target_issue)
+    )
     return {"status": "started"}
+
+
+@app.post("/stop")
+async def stop_agents():
+    global active_task
+    if active_task and not active_task.done():
+        active_task.cancel()
+        active_task = None
+        await manager.broadcast(
+            {
+                "agent": "System",
+                "msg": "Agent loop cancelled by user.",
+                "color": "text-red-500",
+            }
+        )
+        return {"status": "stopped"}
+    return {"status": "not_running"}
 
 
 @app.websocket("/ws")
@@ -188,6 +213,7 @@ def get_repo_file(repo_name: str, file_path: str):
         raise HTTPException(
             status_code=500, detail="An internal error occurred while reading the file"
         )
+
 
 # Serve the static Next.js frontend if the out directory exists
 if os.path.exists("../dashboard/out"):
