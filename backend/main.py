@@ -345,33 +345,53 @@ def get_repo_tree(repo_name: str):
 
 @app.get("/repo/{repo_name:path}/file")
 def get_repo_file(repo_name: str, file_path: str):
-    base_tmp = os.path.abspath("/tmp")
-    clean_name = repo_name.replace("/", "_").replace("\\", "_")
-    repo_dir = os.path.abspath(os.path.join(base_tmp, clean_name))
+    from pathlib import Path
 
-    if not repo_dir.startswith(base_tmp + os.sep):
+    base_tmp = Path("/tmp").resolve()
+    clean_name = repo_name.replace("/", "_").replace("\\", "_")
+    repo_dir = (base_tmp / clean_name).resolve()
+
+    if not repo_dir.is_relative_to(base_tmp):
         raise HTTPException(status_code=400, detail="Invalid repository name")
 
-    target_path = os.path.abspath(os.path.join(repo_dir, file_path))
+    try:
+        target_path = (repo_dir / file_path).resolve()
+    except (OSError, RuntimeError) as e:
+        logger.warning(f"Error resolving path {file_path}: {e}")
+        raise HTTPException(status_code=400, detail="Invalid or looping file path")
 
     # Strict path traversal security check for CodeQL
-    if not target_path.startswith(repo_dir + os.sep) and target_path != repo_dir:
+    if not target_path.is_relative_to(repo_dir):
         raise HTTPException(status_code=403, detail="Invalid file path")
 
-    if not os.path.exists(target_path) or not os.path.isfile(target_path):
+    import os, stat
+    try:
+        fd = os.open(target_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
         raise HTTPException(status_code=404, detail="File not found")
 
     try:
-        with open(target_path, "r", encoding="utf-8") as f:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise HTTPException(status_code=404, detail="File not found")
+
+        with os.fdopen(fd, "r", encoding="utf-8") as f:
             content = f.read()
         return {"content": content}
     except UnicodeDecodeError:
         raise HTTPException(status_code=415, detail="Cannot read binary file")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Failed to read file {target_path}: {e}")
         raise HTTPException(
             status_code=500, detail="An internal error occurred while reading the file"
         )
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
 
 
 # Serve the static Next.js frontend if the out directory exists
