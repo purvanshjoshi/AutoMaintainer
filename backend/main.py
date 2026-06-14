@@ -24,6 +24,30 @@ from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
 
+from pathlib import Path
+
+
+def get_safe_repo_dir(repo_name: str) -> Path:
+    base_tmp = Path("/tmp").resolve()
+    clean_name = repo_name.replace("/", "_").replace("\\", "_")
+    if ".." in clean_name:
+        raise HTTPException(status_code=400, detail="Invalid repository name")
+    repo_dir = (base_tmp / clean_name).resolve()
+    if not repo_dir.is_relative_to(base_tmp) or repo_dir == base_tmp:
+        raise HTTPException(status_code=400, detail="Invalid repository name")
+    return repo_dir
+
+
+def get_safe_target_path(repo_dir: Path, file_path: str) -> Path:
+    clean_path = file_path.lstrip("/").lstrip("\\")
+    if ".." in clean_path.replace("\\", "/").split("/"):
+        raise HTTPException(status_code=400, detail="Path traversal not allowed")
+    target_path = (repo_dir / clean_path).resolve()
+    if not target_path.is_relative_to(repo_dir):
+        raise HTTPException(status_code=403, detail="Invalid file path")
+    return target_path
+
+
 gitnexus_process = None
 
 
@@ -136,16 +160,11 @@ async def update_repo_file(repo_name: str, payload: FileUpdateRequest):
         repo.update_file(file.path, message, payload.content, file.sha)
 
         # Write to local clone so the IDE doesn't show stale reads
-        from pathlib import Path
-
-        base_tmp = Path("/tmp").resolve()
-        clean_name = repo_name.replace("/", "_").replace("\\", "_")
-        repo_dir = (base_tmp / clean_name).resolve()
+        repo_dir = get_safe_repo_dir(repo_name)
         if repo_dir.exists():
-            target_path = (repo_dir / payload.file_path).resolve()
-            if target_path.is_relative_to(repo_dir):
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                target_path.write_text(payload.content, encoding="utf-8")
+            target_path = get_safe_target_path(repo_dir, payload.file_path)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_text(payload.content, encoding="utf-8")
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update file: {e}")
@@ -177,16 +196,11 @@ async def create_repo_file(repo_name: str, payload: FileCreateRequest):
         repo.create_file(actual_path, message, actual_content)
 
         # Write to local clone
-        from pathlib import Path
-
-        base_tmp = Path("/tmp").resolve()
-        clean_name = repo_name.replace("/", "_").replace("\\", "_")
-        repo_dir = (base_tmp / clean_name).resolve()
+        repo_dir = get_safe_repo_dir(repo_name)
         if repo_dir.exists():
-            target_path = (repo_dir / actual_path).resolve()
-            if target_path.is_relative_to(repo_dir):
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                target_path.write_text(actual_content, encoding="utf-8")
+            target_path = get_safe_target_path(repo_dir, actual_path)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_text(actual_content, encoding="utf-8")
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create file: {e}")
@@ -214,15 +228,12 @@ async def delete_repo_file(repo_name: str, file_path: str):
         repo.delete_file(file.path, message, file.sha)
 
         # Local delete
-        from pathlib import Path
         import shutil
 
-        base_tmp = Path("/tmp").resolve()
-        clean_name = repo_name.replace("/", "_").replace("\\", "_")
-        repo_dir = (base_tmp / clean_name).resolve()
+        repo_dir = get_safe_repo_dir(repo_name)
         if repo_dir.exists():
-            target_path = (repo_dir / file_path).resolve()
-            if target_path.is_relative_to(repo_dir) and target_path.exists():
+            target_path = get_safe_target_path(repo_dir, file_path)
+            if target_path.exists():
                 if target_path.is_file():
                     target_path.unlink()
                 elif target_path.is_dir():
@@ -388,12 +399,7 @@ async def terminal_ws(websocket: WebSocket, repo_url: str = ""):
 
 @app.get("/repo/{repo_name:path}/tree")
 def get_repo_tree(repo_name: str):
-    base_tmp = os.path.abspath("/tmp")
-    clean_name = repo_name.replace("/", "_").replace("\\", "_")
-    repo_dir = os.path.abspath(os.path.join(base_tmp, clean_name))
-
-    if not repo_dir.startswith(base_tmp + os.sep):
-        raise HTTPException(status_code=400, detail="Invalid repository name")
+    repo_dir = get_safe_repo_dir(repo_name)
 
     if not os.path.exists(repo_dir):
         raise HTTPException(
@@ -426,7 +432,7 @@ def get_repo_tree(repo_name: str):
                 is_dir = os.path.isdir(item_path)
                 node = {
                     "name": item,
-                    "path": os.path.relpath(item_path, repo_dir).replace("\\", "/"),
+                    "path": Path(item_path).relative_to(repo_dir).as_posix(),
                     "type": "directory" if is_dir else "file",
                 }
                 if is_dir:
@@ -445,13 +451,9 @@ def get_repo_tree(repo_name: str):
 
 @app.get("/repo/{repo_name:path}/search")
 def search_repo(repo_name: str, q: str):
-    from pathlib import Path
+    repo_dir = get_safe_repo_dir(repo_name)
 
-    base_tmp = Path("/tmp").resolve()
-    clean_name = repo_name.replace("/", "_").replace("\\", "_")
-    repo_dir = (base_tmp / clean_name).resolve()
-
-    if not repo_dir.exists() or not repo_dir.is_relative_to(base_tmp):
+    if not repo_dir.exists():
         raise HTTPException(status_code=404, detail="Repo not found locally")
 
     ignored_dirs = {
@@ -481,8 +483,8 @@ def search_repo(repo_name: str, q: str):
                     with open(file_path, "r", encoding="utf-8") as f:
                         for i, line in enumerate(f):
                             if q.lower() in line.lower():
-                                rel_path = os.path.relpath(file_path, repo_dir).replace(
-                                    "\\", "/"
+                                rel_path = (
+                                    Path(file_path).relative_to(repo_dir).as_posix()
                                 )
                                 results.append(
                                     {
@@ -503,24 +505,8 @@ def search_repo(repo_name: str, q: str):
 
 @app.get("/repo/{repo_name:path}/file")
 def get_repo_file(repo_name: str, file_path: str):
-    from pathlib import Path
-
-    base_tmp = Path("/tmp").resolve()
-    clean_name = repo_name.replace("/", "_").replace("\\", "_")
-    repo_dir = (base_tmp / clean_name).resolve()
-
-    if not repo_dir.is_relative_to(base_tmp):
-        raise HTTPException(status_code=400, detail="Invalid repository name")
-
-    try:
-        target_path = (repo_dir / file_path).resolve()
-    except (OSError, RuntimeError) as e:
-        logger.warning(f"Error resolving path {file_path}: {e}")
-        raise HTTPException(status_code=400, detail="Invalid or looping file path")
-
-    # Strict path traversal security check for CodeQL
-    if not target_path.is_relative_to(repo_dir):
-        raise HTTPException(status_code=403, detail="Invalid file path")
+    repo_dir = get_safe_repo_dir(repo_name)
+    target_path = get_safe_target_path(repo_dir, file_path)
 
     import os, stat
 
