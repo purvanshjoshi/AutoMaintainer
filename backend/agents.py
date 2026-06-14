@@ -787,6 +787,16 @@ async def run_agent_loop(repo_name: str, ws_manager, target_issue: int | None = 
         if parsed.netloc in ["github.com", "www.github.com"]:
             repo_name = parsed.path.strip("/")
 
+    if not repo_name or repo_name == "owner/repo":
+        await ws_manager.broadcast(
+            {
+                "agent": "System",
+                "msg": "Invalid repository name. Please configure a valid Target Repository.",
+                "color": "text-red-500",
+            }
+        )
+        return
+
     initial_state = {
         "repo_name": repo_name,
         "target_issue": target_issue,

@@ -56,6 +56,10 @@ export default function Home() {
 
   const handleStartStop = async () => {
     if (!isRunning) {
+      if (!repoUrl || repoUrl.trim() === "owner/repo") {
+        setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), agent: "System", msg: "Please configure a valid Target Repository in the sidebar first.", color: "text-red-400" }]);
+        return;
+      }
       setIsRunning(true);
       setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), agent: "System", msg: `Triggering AI Agent Loop for ${repoUrl}...`, color: "text-zinc-500" }]);
       try {
