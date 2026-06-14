@@ -56,7 +56,9 @@ export default function Home() {
 
   const handleStartStop = async () => {
     if (!isRunning) {
-      if (!repoUrl || repoUrl.trim() === "owner/repo") {
+      if (!repoUrl || repoUrl.trim() === "owner/repo" || repoUrl.trim() === "") {
+        alert("Please enter a Target Repository first!");
+        setIsEditingRepo(true);
         setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), agent: "System", msg: "Please configure a valid Target Repository in the sidebar first.", color: "text-red-400" }]);
         return;
       }
