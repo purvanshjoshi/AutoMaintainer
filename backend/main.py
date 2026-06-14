@@ -93,6 +93,7 @@ class FileUpdateRequest(BaseModel):
     content: str
     commit_message: Optional[str] = None
 
+
 class FileCreateRequest(BaseModel):
     file_path: str
     content: str = ""
@@ -133,9 +134,10 @@ async def update_repo_file(repo_name: str, payload: FileUpdateRequest):
     )
     try:
         repo.update_file(file.path, message, payload.content, file.sha)
-        
+
         # Write to local clone so the IDE doesn't show stale reads
         from pathlib import Path
+
         base_tmp = Path("/tmp").resolve()
         clean_name = repo_name.replace("/", "_").replace("\\", "_")
         repo_dir = (base_tmp / clean_name).resolve()
@@ -144,10 +146,11 @@ async def update_repo_file(repo_name: str, payload: FileUpdateRequest):
             if target_path.is_relative_to(repo_dir):
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 target_path.write_text(payload.content, encoding="utf-8")
-                
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update file: {e}")
     return {"status": "updated", "message": message}
+
 
 @app.post("/repo/{repo_name:path}/file/create")
 async def create_repo_file(repo_name: str, payload: FileCreateRequest):
@@ -159,20 +162,23 @@ async def create_repo_file(repo_name: str, payload: FileCreateRequest):
         repo = gh.get_repo(repo_name)
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Repository not found: {e}")
-    
-    message = payload.commit_message or f"Create {payload.file_path} via AutoMaintainer IDE"
-    
+
+    message = (
+        payload.commit_message or f"Create {payload.file_path} via AutoMaintainer IDE"
+    )
+
     actual_path = payload.file_path
     actual_content = payload.content
     if payload.is_dir:
         actual_path = f"{payload.file_path.rstrip('/')}/.gitkeep"
         actual_content = ""
-        
+
     try:
         repo.create_file(actual_path, message, actual_content)
-        
+
         # Write to local clone
         from pathlib import Path
+
         base_tmp = Path("/tmp").resolve()
         clean_name = repo_name.replace("/", "_").replace("\\", "_")
         repo_dir = (base_tmp / clean_name).resolve()
@@ -181,10 +187,11 @@ async def create_repo_file(repo_name: str, payload: FileCreateRequest):
             if target_path.is_relative_to(repo_dir):
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 target_path.write_text(actual_content, encoding="utf-8")
-                
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create file: {e}")
     return {"status": "created", "message": message}
+
 
 @app.delete("/repo/{repo_name:path}/file")
 async def delete_repo_file(repo_name: str, file_path: str):
@@ -196,19 +203,20 @@ async def delete_repo_file(repo_name: str, file_path: str):
         repo = gh.get_repo(repo_name)
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Repository not found: {e}")
-        
+
     try:
         file = repo.get_contents(file_path)
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"File not found in repo: {e}")
-        
+
     message = f"Delete {file_path} via AutoMaintainer IDE"
     try:
         repo.delete_file(file.path, message, file.sha)
-        
+
         # Local delete
         from pathlib import Path
         import shutil
+
         base_tmp = Path("/tmp").resolve()
         clean_name = repo_name.replace("/", "_").replace("\\", "_")
         repo_dir = (base_tmp / clean_name).resolve()
@@ -434,22 +442,37 @@ def get_repo_tree(repo_name: str):
 
     return {"name": repo_name, "type": "directory", "children": build_tree(repo_dir)}
 
+
 @app.get("/repo/{repo_name:path}/search")
 def search_repo(repo_name: str, q: str):
     from pathlib import Path
+
     base_tmp = Path("/tmp").resolve()
     clean_name = repo_name.replace("/", "_").replace("\\", "_")
     repo_dir = (base_tmp / clean_name).resolve()
-    
+
     if not repo_dir.exists() or not repo_dir.is_relative_to(base_tmp):
         raise HTTPException(status_code=404, detail="Repo not found locally")
-        
-    ignored_dirs = {".git", "node_modules", "__pycache__", "venv", "env", "build", "dist", ".next"}
+
+    ignored_dirs = {
+        ".git",
+        "node_modules",
+        "__pycache__",
+        "venv",
+        "env",
+        "build",
+        "dist",
+        ".next",
+    }
     results = []
-    
+
     try:
         for root, dirs, files in os.walk(repo_dir):
-            dirs[:] = [d for d in dirs if d not in ignored_dirs and not os.path.islink(os.path.join(root, d))]
+            dirs[:] = [
+                d
+                for d in dirs
+                if d not in ignored_dirs and not os.path.islink(os.path.join(root, d))
+            ]
             for file in files:
                 file_path = os.path.join(root, file)
                 if os.path.islink(file_path):
@@ -458,19 +481,23 @@ def search_repo(repo_name: str, q: str):
                     with open(file_path, "r", encoding="utf-8") as f:
                         for i, line in enumerate(f):
                             if q.lower() in line.lower():
-                                rel_path = os.path.relpath(file_path, repo_dir).replace("\\", "/")
-                                results.append({
-                                    "file": rel_path,
-                                    "line_number": i + 1,
-                                    "snippet": line.strip()[:200]
-                                })
+                                rel_path = os.path.relpath(file_path, repo_dir).replace(
+                                    "\\", "/"
+                                )
+                                results.append(
+                                    {
+                                        "file": rel_path,
+                                        "line_number": i + 1,
+                                        "snippet": line.strip()[:200],
+                                    }
+                                )
                 except UnicodeDecodeError:
                     pass
                 except Exception:
                     pass
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-        
+
     return {"query": q, "results": results[:100]}
 
 
@@ -496,6 +523,7 @@ def get_repo_file(repo_name: str, file_path: str):
         raise HTTPException(status_code=403, detail="Invalid file path")
 
     import os, stat
+
     try:
         fd = os.open(target_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     except OSError:

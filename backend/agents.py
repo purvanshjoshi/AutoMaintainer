@@ -73,7 +73,9 @@ def run_llm(system_prompt: str, user_prompt: str):
             except RateLimitError:
                 print(f"Key {idx} rate limited on {model_name}, falling back...")
                 continue
-    raise Exception("All Groq keys and models are currently rate limited. Please wait a minute.")
+    raise Exception(
+        "All Groq keys and models are currently rate limited. Please wait a minute."
+    )
 
 
 async def run_llm_with_tools(system_prompt: str, user_prompt: str):
@@ -104,9 +106,7 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
 
                 llms = [
                     ChatGroq(model="llama-3.3-70b-versatile", api_key=k) for k in keys
-                ] + [
-                    ChatGroq(model="llama-3.1-8b-instant", api_key=k) for k in keys
-                ]
+                ] + [ChatGroq(model="llama-3.1-8b-instant", api_key=k) for k in keys]
                 if len(llms) > 1:
                     llm = llms[0].with_fallbacks(llms[1:])
                 else:
@@ -136,9 +136,12 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
     except Exception as e:
         err_str = str(e)
         if "RateLimitError" in err_str or "429" in err_str:
-            print(f"⚠️ Groq Rate Limit Reached during Tool loop. Falling back to simple LLM prompt.")
+            print(
+                f"⚠️ Groq Rate Limit Reached during Tool loop. Falling back to simple LLM prompt."
+            )
         else:
             import traceback
+
             traceback.print_exc()
             print(f"MCP Tool execution fallback: {e}")
         try:
@@ -147,11 +150,15 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
             print(f"LLM execution completely failed: {e2}")
             ws = current_ws.get(None)
             if ws:
-                asyncio.create_task(ws.broadcast({
-                    "agent": "System",
-                    "msg": f"LLM Rate Limit Reached: {str(e2)}. Please wait a minute.",
-                    "color": "text-red-500"
-                }))
+                asyncio.create_task(
+                    ws.broadcast(
+                        {
+                            "agent": "System",
+                            "msg": f"LLM Rate Limit Reached: {str(e2)}. Please wait a minute.",
+                            "color": "text-red-500",
+                        }
+                    )
+                )
             return f"[ERROR] LLM execution failed: {e2}"
 
 
@@ -162,9 +169,7 @@ async def architect_node(state: AgentState):
     tree_content = ""
     readme_content = ""
 
-    new_logs.append(
-        {"type": "ui_update", "agentStatus": {"Architect": "active"}}
-    )
+    new_logs.append({"type": "ui_update", "agentStatus": {"Architect": "active"}})
 
     if target_issue and gh:
         try:
@@ -191,10 +196,11 @@ async def architect_node(state: AgentState):
                     "color": "text-rose-400",
                 }
             )
-            new_logs.append(
-                {"type": "ui_update", "agentStatus": {"Architect": "idle"}}
-            )
-            return {"architect_directive": directive, "log_messages": new_logs} # ARCHITECT EARLY RETURN
+            new_logs.append({"type": "ui_update", "agentStatus": {"Architect": "idle"}})
+            return {
+                "architect_directive": directive,
+                "log_messages": new_logs,
+            }  # ARCHITECT EARLY RETURN
         except Exception as e:
             new_logs.append(
                 {
@@ -375,10 +381,12 @@ async def architect_node(state: AgentState):
             "color": "text-rose-400",
         }
     )
-    new_logs.append(
-        {"type": "ui_update", "agentStatus": {"Architect": "idle"}}
-    )
-    return {"architect_directive": state.get("architect_directive", ""), "log_messages": new_logs}
+    new_logs.append({"type": "ui_update", "agentStatus": {"Architect": "idle"}})
+    return {
+        "architect_directive": state.get("architect_directive", ""),
+        "log_messages": new_logs,
+    }
+
 
 async def brainstormer_node(state: AgentState):
     new_logs = []
@@ -389,9 +397,7 @@ async def brainstormer_node(state: AgentState):
     if target_issue:
         state["idea"] = directive
         state["issue_number"] = target_issue
-        new_logs.append(
-            {"type": "ui_update", "agentStatus": {"Visionary": "active"}}
-        )
+        new_logs.append({"type": "ui_update", "agentStatus": {"Visionary": "active"}})
         new_logs.append(
             {
                 "agent": "Visionary",
@@ -399,10 +405,12 @@ async def brainstormer_node(state: AgentState):
                 "color": "text-emerald-400",
             }
         )
-        new_logs.append(
-            {"type": "ui_update", "agentStatus": {"Visionary": "idle"}}
-        )
-        return {"idea": directive, "issue_number": target_issue, "log_messages": new_logs}
+        new_logs.append({"type": "ui_update", "agentStatus": {"Visionary": "idle"}})
+        return {
+            "idea": directive,
+            "issue_number": target_issue,
+            "log_messages": new_logs,
+        }
 
     system_prompt = "You are the Visionary Agent. Your job is to brainstorm one single, highly innovative feature that fulfills the Architect's directive."
     user_prompt = f"Architect Directive:\n{directive}\n\nBrainstorm a new feature for {repo}. Keep it under 3 sentences."
@@ -410,9 +418,7 @@ async def brainstormer_node(state: AgentState):
     idea = await run_llm_with_tools(system_prompt, user_prompt)
     state["idea"] = idea
 
-    new_logs.append(
-        {"type": "ui_update", "agentStatus": {"Visionary": "active"}}
-    )
+    new_logs.append({"type": "ui_update", "agentStatus": {"Visionary": "active"}})
     new_logs.append(
         {
             "type": "ui_update",
@@ -456,10 +462,13 @@ async def brainstormer_node(state: AgentState):
                 }
             )
 
-    new_logs.append(
-        {"type": "ui_update", "agentStatus": {"Visionary": "idle"}}
-    )
-    return {"idea": idea, "issue_number": state.get("issue_number", 0), "log_messages": new_logs}
+    new_logs.append({"type": "ui_update", "agentStatus": {"Visionary": "idle"}})
+    return {
+        "idea": idea,
+        "issue_number": state.get("issue_number", 0),
+        "log_messages": new_logs,
+    }
+
 
 async def pm_node(state: AgentState):
     new_logs = []
@@ -469,9 +478,7 @@ async def pm_node(state: AgentState):
     issue_number = state.get("issue_number")
     target_issue = state.get("target_issue")
 
-    new_logs.append(
-        {"type": "ui_update", "agentStatus": {"Reviewer": "active"}}
-    )
+    new_logs.append({"type": "ui_update", "agentStatus": {"Reviewer": "active"}})
     new_logs.append(
         {
             "type": "ui_update",
@@ -494,9 +501,7 @@ async def pm_node(state: AgentState):
                 "color": "text-amber-400",
             }
         )
-        new_logs.append(
-            {"type": "ui_update", "agentStatus": {"Reviewer": "idle"}}
-        )
+        new_logs.append({"type": "ui_update", "agentStatus": {"Reviewer": "idle"}})
         return {"pm_decision": decision, "log_messages": new_logs}
 
     system_prompt = "You are the Product Manager. Review the proposed feature against the Architect's directive. Decide if we should build it ('APPROVED') or not ('REJECTED'). Start your response with APPROVED or REJECTED, then give a 1 sentence reason."
@@ -535,10 +540,9 @@ async def pm_node(state: AgentState):
                 }
             )
 
-    new_logs.append(
-        {"type": "ui_update", "agentStatus": {"Reviewer": "idle"}}
-    )
+    new_logs.append({"type": "ui_update", "agentStatus": {"Reviewer": "idle"}})
     return {"pm_decision": decision, "log_messages": new_logs}
+
 
 def should_implement(state: AgentState):
     return (
@@ -566,9 +570,7 @@ async def implementer_node(state: AgentState):
     code = await run_llm_with_tools(system_prompt, user_prompt)
     state["code"] = code
 
-    new_logs.append(
-        {"type": "ui_update", "agentStatus": {"Implementer": "active"}}
-    )
+    new_logs.append({"type": "ui_update", "agentStatus": {"Implementer": "active"}})
 
     if iteration > 0:
         new_logs.append(
@@ -672,10 +674,14 @@ async def implementer_node(state: AgentState):
                 }
             )
 
-    new_logs.append(
-        {"type": "ui_update", "agentStatus": {"Implementer": "idle"}}
-    )
-    return {"code": code, "branch_name": state.get("branch_name", ""), "pr_number": state.get("pr_number", 0), "log_messages": new_logs}
+    new_logs.append({"type": "ui_update", "agentStatus": {"Implementer": "idle"}})
+    return {
+        "code": code,
+        "branch_name": state.get("branch_name", ""),
+        "pr_number": state.get("pr_number", 0),
+        "log_messages": new_logs,
+    }
+
 
 async def maintainer_node(state: AgentState):
     new_logs = []
@@ -688,9 +694,7 @@ async def maintainer_node(state: AgentState):
     review = await run_llm_with_tools(system_prompt, f"Review this code:\n{code}")
     state["review"] = review
 
-    new_logs.append(
-        {"type": "ui_update", "agentStatus": {"Maintainer": "active"}}
-    )
+    new_logs.append({"type": "ui_update", "agentStatus": {"Maintainer": "active"}})
     new_logs.append(
         {
             "agent": "Maintainer",
@@ -738,10 +742,13 @@ async def maintainer_node(state: AgentState):
     if not is_lgtm:
         state["iteration"] = iteration + 1
 
-    new_logs.append(
-        {"type": "ui_update", "agentStatus": {"Maintainer": "idle"}}
-    )
-    return {"review": review, "iteration": state.get("iteration", 0), "log_messages": new_logs}
+    new_logs.append({"type": "ui_update", "agentStatus": {"Maintainer": "idle"}})
+    return {
+        "review": review,
+        "iteration": state.get("iteration", 0),
+        "log_messages": new_logs,
+    }
+
 
 def should_iterate(state: AgentState):
     if "LGTM" in state.get("review", "").upper():
