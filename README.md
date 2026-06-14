@@ -24,6 +24,10 @@ AutoMaintainer is a revolutionary proof-of-concept that demonstrates an entirely
 
 Built with **LangGraph**, **FastAPI**, **Next.js**, and powered by **Llama 3 (via Groq)**, this system doesn't just print code to a terminal—it brainstorms ideas, creates real GitHub Issues, writes code, submits Pull Requests, reviews the PRs, fixes its own bugs, and merges the code into your `main` branch.
 
+> [!IMPORTANT]
+> **Supabase Real-time Architecture Required!**
+> This repository was recently upgraded from a legacy WebSocket architecture to a high-performance **Supabase Real-time Pub/Sub** ecosystem. You **must** create a free Supabase project and provide the URL and API Keys in your `.env` files for the UI to receive logs from the AI agents. See the [Database & Environment Setup](#2-database--environment-setup) section below for exact instructions!
+
 ---
 
 ## Features
