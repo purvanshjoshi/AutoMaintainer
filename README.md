@@ -26,7 +26,9 @@ Built with **LangGraph**, **FastAPI**, **Next.js**, and powered by **Llama 3 (vi
 
 > [!IMPORTANT]
 > **Supabase Real-time Architecture Required!**
-> This repository was recently upgraded from a legacy WebSocket architecture to a high-performance **Supabase Real-time Pub/Sub** ecosystem. You **must** create a free Supabase project and provide the URL and API Keys in your `.env` files for the UI to receive logs from the AI agents. See the [Database & Environment Setup](#2-database--environment-setup) section below for exact instructions!
+> This repository was recently upgraded from a legacy WebSocket architecture to a high-performance **Supabase Real-time Pub/Sub** ecosystem. For this early access / open-source version, you **must** create a free Supabase project and provide the URL and API Keys in your `.env` files for the UI to receive logs from the AI agents. See the [Database & Environment Setup](#2-database--environment-setup) section below for exact instructions!
+> 
+> *(Note: In the upcoming official ecosystem launch, this will be handled automatically via a central cloud and users will simply run `automaintainer login` without needing to configure their own database!)*
 
 ---
 
