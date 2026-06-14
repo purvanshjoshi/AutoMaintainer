@@ -110,9 +110,9 @@ async def run_llm(system_prompt: str, user_prompt: str) -> str:
             )
         raise ValueError("No GROQ_API_KEY found in environment")
 
-    llms = [
-        ChatGroq(model="llama-3.3-70b-versatile", api_key=k) for k in keys
-    ] + [ChatGroq(model="llama-3.1-8b-instant", api_key=k) for k in keys]
+    llms = [ChatGroq(model="llama-3.3-70b-versatile", api_key=k) for k in keys] + [
+        ChatGroq(model="llama-3.1-8b-instant", api_key=k) for k in keys
+    ]
     if len(llms) > 1:
         llm = llms[0].with_fallbacks(llms[1:])
     else:
@@ -123,22 +123,22 @@ async def run_llm(system_prompt: str, user_prompt: str) -> str:
         [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
     )
     latency_ms = int((time.time() - start_t) * 1000)
-    
+
     tokens = 0
     if hasattr(response, "usage_metadata") and response.usage_metadata:
         tokens = response.usage_metadata.get("total_tokens", 0)
-        
+
     run_id = current_run_id.get(None)
     if run_id:
         asyncio.create_task(
             broadcast_log(
                 {
                     "type": "ui_update",
-                    "systemHealth": {"latency": latency_ms, "tokensUsed": tokens}
+                    "systemHealth": {"latency": latency_ms, "tokensUsed": tokens},
                 }
             )
         )
-        
+
     return response.content
 
 
@@ -180,7 +180,7 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
 
                 final_res = None
                 start_t = time.time()
-                
+
                 async for chunk in agent.astream(
                     {"messages": [("system", system_prompt), ("user", user_prompt)]},
                     stream_mode="updates",
@@ -197,7 +197,10 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
                             )
                     if "agent" in chunk:
                         final_res = chunk["agent"]
-                        if "messages" in chunk["agent"] and len(chunk["agent"]["messages"]) > 0:
+                        if (
+                            "messages" in chunk["agent"]
+                            and len(chunk["agent"]["messages"]) > 0
+                        ):
                             msg = chunk["agent"]["messages"][-1]
                             if hasattr(msg, "usage_metadata") and msg.usage_metadata:
                                 tokens = msg.usage_metadata.get("total_tokens", 0)
@@ -206,7 +209,10 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
                                     await broadcast_log(
                                         {
                                             "type": "ui_update",
-                                            "systemHealth": {"latency": latency_ms, "tokensUsed": tokens}
+                                            "systemHealth": {
+                                                "latency": latency_ms,
+                                                "tokensUsed": tokens,
+                                            },
                                         }
                                     )
 
