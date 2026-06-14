@@ -93,6 +93,12 @@ class FileUpdateRequest(BaseModel):
     content: str
     commit_message: Optional[str] = None
 
+class FileCreateRequest(BaseModel):
+    file_path: str
+    content: str = ""
+    is_dir: bool = False
+    commit_message: Optional[str] = None
+
 
 active_task: Optional[asyncio.Task] = None
 
@@ -127,9 +133,95 @@ async def update_repo_file(repo_name: str, payload: FileUpdateRequest):
     )
     try:
         repo.update_file(file.path, message, payload.content, file.sha)
+        
+        # Write to local clone so the IDE doesn't show stale reads
+        from pathlib import Path
+        base_tmp = Path("/tmp").resolve()
+        clean_name = repo_name.replace("/", "_").replace("\\", "_")
+        repo_dir = (base_tmp / clean_name).resolve()
+        if repo_dir.exists():
+            target_path = (repo_dir / payload.file_path).resolve()
+            if target_path.is_relative_to(repo_dir):
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                target_path.write_text(payload.content, encoding="utf-8")
+                
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update file: {e}")
     return {"status": "updated", "message": message}
+
+@app.post("/repo/{repo_name:path}/file/create")
+async def create_repo_file(repo_name: str, payload: FileCreateRequest):
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise HTTPException(status_code=401, detail="GitHub token not configured")
+    gh = Github(token)
+    try:
+        repo = gh.get_repo(repo_name)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Repository not found: {e}")
+    
+    message = payload.commit_message or f"Create {payload.file_path} via AutoMaintainer IDE"
+    
+    actual_path = payload.file_path
+    actual_content = payload.content
+    if payload.is_dir:
+        actual_path = f"{payload.file_path.rstrip('/')}/.gitkeep"
+        actual_content = ""
+        
+    try:
+        repo.create_file(actual_path, message, actual_content)
+        
+        # Write to local clone
+        from pathlib import Path
+        base_tmp = Path("/tmp").resolve()
+        clean_name = repo_name.replace("/", "_").replace("\\", "_")
+        repo_dir = (base_tmp / clean_name).resolve()
+        if repo_dir.exists():
+            target_path = (repo_dir / actual_path).resolve()
+            if target_path.is_relative_to(repo_dir):
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                target_path.write_text(actual_content, encoding="utf-8")
+                
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create file: {e}")
+    return {"status": "created", "message": message}
+
+@app.delete("/repo/{repo_name:path}/file")
+async def delete_repo_file(repo_name: str, file_path: str):
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise HTTPException(status_code=401, detail="GitHub token not configured")
+    gh = Github(token)
+    try:
+        repo = gh.get_repo(repo_name)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Repository not found: {e}")
+        
+    try:
+        file = repo.get_contents(file_path)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"File not found in repo: {e}")
+        
+    message = f"Delete {file_path} via AutoMaintainer IDE"
+    try:
+        repo.delete_file(file.path, message, file.sha)
+        
+        # Local delete
+        from pathlib import Path
+        import shutil
+        base_tmp = Path("/tmp").resolve()
+        clean_name = repo_name.replace("/", "_").replace("\\", "_")
+        repo_dir = (base_tmp / clean_name).resolve()
+        if repo_dir.exists():
+            target_path = (repo_dir / file_path).resolve()
+            if target_path.is_relative_to(repo_dir) and target_path.exists():
+                if target_path.is_file():
+                    target_path.unlink()
+                elif target_path.is_dir():
+                    shutil.rmtree(target_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete file: {e}")
+    return {"status": "deleted", "message": message}
 
 
 @app.post("/stop")
@@ -341,6 +433,45 @@ def get_repo_tree(repo_name: str):
         return tree
 
     return {"name": repo_name, "type": "directory", "children": build_tree(repo_dir)}
+
+@app.get("/repo/{repo_name:path}/search")
+def search_repo(repo_name: str, q: str):
+    from pathlib import Path
+    base_tmp = Path("/tmp").resolve()
+    clean_name = repo_name.replace("/", "_").replace("\\", "_")
+    repo_dir = (base_tmp / clean_name).resolve()
+    
+    if not repo_dir.exists() or not repo_dir.is_relative_to(base_tmp):
+        raise HTTPException(status_code=404, detail="Repo not found locally")
+        
+    ignored_dirs = {".git", "node_modules", "__pycache__", "venv", "env", "build", "dist", ".next"}
+    results = []
+    
+    try:
+        for root, dirs, files in os.walk(repo_dir):
+            dirs[:] = [d for d in dirs if d not in ignored_dirs and not os.path.islink(os.path.join(root, d))]
+            for file in files:
+                file_path = os.path.join(root, file)
+                if os.path.islink(file_path):
+                    continue
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        for i, line in enumerate(f):
+                            if q.lower() in line.lower():
+                                rel_path = os.path.relpath(file_path, repo_dir).replace("\\", "/")
+                                results.append({
+                                    "file": rel_path,
+                                    "line_number": i + 1,
+                                    "snippet": line.strip()[:200]
+                                })
+                except UnicodeDecodeError:
+                    pass
+                except Exception:
+                    pass
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    return {"query": q, "results": results[:100]}
 
 
 @app.get("/repo/{repo_name:path}/file")
