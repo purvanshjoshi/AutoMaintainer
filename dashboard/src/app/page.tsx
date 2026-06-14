@@ -50,6 +50,7 @@ export default function Home() {
   const [logs, setLogs] = useState([
     { time: "00:00:00", agent: "System", msg: "Connecting to backend...", color: "text-zinc-500" }
   ]);
+  const [systemHealth, setSystemHealth] = useState({ latency: 0, tokensUsed: 0 });
   const [pipeline, setPipeline] = useState<any[]>([]);
   const [activity, setActivity] = useState<any[]>([]);
   const [agentStatus, setAgentStatus] = useState<any>({
@@ -113,6 +114,12 @@ export default function Home() {
         data.forEach((row: any) => {
           if (row.log_type === 'ui_update') {
             const msgData = row.metadata || {};
+            if (msgData.systemHealth) {
+              setSystemHealth(prev => ({
+                latency: msgData.systemHealth.latency || prev.latency,
+                tokensUsed: prev.tokensUsed + (msgData.systemHealth.tokensUsed || 0)
+              }));
+            }
             if (msgData.agentStatus) setAgentStatus((prev: any) => ({ ...prev, ...msgData.agentStatus }));
             if (msgData.pipeline) {
               setPipeline((prev) => {
@@ -422,17 +429,17 @@ export default function Home() {
                    <div className="space-y-3 mt-4">
                      <div className="flex justify-between items-center text-xs">
                        <span className="text-zinc-400">API Latency</span>
-                       <span className="text-zinc-200">245ms</span>
+                       <span className="text-zinc-200">{systemHealth.latency > 0 ? `${systemHealth.latency}ms` : '-- ms'}</span>
                      </div>
                      <div className="w-full bg-zinc-800/50 rounded-full h-1.5">
-                       <div className="bg-indigo-400 h-1.5 rounded-full w-1/3"></div>
+                       <div className="bg-indigo-400 h-1.5 rounded-full" style={{ width: `${Math.min(100, Math.max(5, (systemHealth.latency / 2000) * 100))}%` }}></div>
                      </div>
                      <div className="flex justify-between items-center text-xs pt-2">
-                       <span className="text-zinc-400">Token Usage (24h)</span>
-                       <span className="text-zinc-200">142k / 500k</span>
+                       <span className="text-zinc-400">Token Usage (Session)</span>
+                       <span className="text-zinc-200">{(systemHealth.tokensUsed / 1000).toFixed(1)}k</span>
                      </div>
                      <div className="w-full bg-zinc-800/50 rounded-full h-1.5">
-                       <div className="bg-purple-400 h-1.5 rounded-full w-[28%]"></div>
+                       <div className="bg-purple-400 h-1.5 rounded-full" style={{ width: `${Math.min(100, (systemHealth.tokensUsed / 100000) * 100)}%` }}></div>
                      </div>
                    </div>
                 </div>

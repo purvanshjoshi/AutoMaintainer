@@ -11,6 +11,7 @@ import asyncio
 from github import Github
 import uuid
 import json
+import time
 from ast_indexer import CodebaseMapper
 from contextvars import ContextVar
 from supabase import create_client, Client
@@ -95,31 +96,50 @@ class AgentState(TypedDict):
     log_messages: Annotated[list, operator.add]
 
 
-def run_llm(system_prompt: str, user_prompt: str):
-    from litellm.exceptions import RateLimitError
-
+async def run_llm(system_prompt: str, user_prompt: str) -> str:
     keys = get_all_groq_keys()
     if not keys:
+        run_id = current_run_id.get(None)
+        if run_id:
+            await broadcast_log(
+                {
+                    "agent": "System",
+                    "msg": "[ERROR] No GROQ_API_KEY found in environment. Agents cannot run.",
+                    "color": "text-red-500",
+                }
+            )
         raise ValueError("No GROQ_API_KEY found in environment")
 
-    for idx, key in enumerate(keys):
-        for model_name in ["groq/llama-3.3-70b-versatile", "groq/llama-3.1-8b-instant"]:
-            try:
-                response = completion(
-                    model=model_name,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    api_key=key,
-                )
-                return response.choices[0].message.content
-            except RateLimitError:
-                print(f"Key {idx} rate limited on {model_name}, falling back...")
-                continue
-    raise Exception(
-        "All Groq keys and models are currently rate limited. Please wait a minute."
+    llms = [
+        ChatGroq(model="llama-3.3-70b-versatile", api_key=k) for k in keys
+    ] + [ChatGroq(model="llama-3.1-8b-instant", api_key=k) for k in keys]
+    if len(llms) > 1:
+        llm = llms[0].with_fallbacks(llms[1:])
+    else:
+        llm = llms[0]
+
+    start_t = time.time()
+    response = await llm.ainvoke(
+        [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
     )
+    latency_ms = int((time.time() - start_t) * 1000)
+    
+    tokens = 0
+    if hasattr(response, "usage_metadata") and response.usage_metadata:
+        tokens = response.usage_metadata.get("total_tokens", 0)
+        
+    run_id = current_run_id.get(None)
+    if run_id:
+        asyncio.create_task(
+            broadcast_log(
+                {
+                    "type": "ui_update",
+                    "systemHealth": {"latency": latency_ms, "tokensUsed": tokens}
+                }
+            )
+        )
+        
+    return response.content
 
 
 async def run_llm_with_tools(system_prompt: str, user_prompt: str):
@@ -159,6 +179,8 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
                 agent = create_react_agent(llm, tools=tools)
 
                 final_res = None
+                start_t = time.time()
+                
                 async for chunk in agent.astream(
                     {"messages": [("system", system_prompt), ("user", user_prompt)]},
                     stream_mode="updates",
@@ -175,6 +197,18 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
                             )
                     if "agent" in chunk:
                         final_res = chunk["agent"]
+                        if "messages" in chunk["agent"] and len(chunk["agent"]["messages"]) > 0:
+                            msg = chunk["agent"]["messages"][-1]
+                            if hasattr(msg, "usage_metadata") and msg.usage_metadata:
+                                tokens = msg.usage_metadata.get("total_tokens", 0)
+                                latency_ms = int((time.time() - start_t) * 1000)
+                                if run_id:
+                                    await broadcast_log(
+                                        {
+                                            "type": "ui_update",
+                                            "systemHealth": {"latency": latency_ms, "tokensUsed": tokens}
+                                        }
+                                    )
 
                 return final_res["messages"][-1].content
     except Exception as e:
@@ -189,7 +223,7 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
             traceback.print_exc()
             print(f"MCP Tool execution fallback: {e}")
         try:
-            return run_llm(system_prompt, user_prompt)
+            return await run_llm(system_prompt, user_prompt)
         except Exception as e2:
             print(f"LLM execution completely failed: {e2}")
             run_id = current_run_id.get(None)
