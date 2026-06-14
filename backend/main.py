@@ -14,6 +14,8 @@ from typing import Optional
 from agents import run_agent_loop
 import asyncio
 import json
+import uuid
+import httpx
 import os
 import sys
 import platform
@@ -84,29 +86,6 @@ app.add_middleware(
 )
 
 
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: list[WebSocket] = []
-
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-
-    def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-
-    async def broadcast(self, message: dict):
-        for connection in self.active_connections:
-            try:
-                await connection.send_text(json.dumps(message))
-            except Exception:
-                pass
-
-
-manager = ConnectionManager()
-
-
 class StartRequest(BaseModel):
     repo_name: str
     target_issue: Optional[int] = None
@@ -133,10 +112,11 @@ async def start_agents(req: StartRequest):
     global active_task
     if active_task and not active_task.done():
         return {"status": "already_running"}
+    run_id = str(uuid.uuid4())
     active_task = asyncio.create_task(
-        run_agent_loop(req.repo_name, manager, req.target_issue)
+        run_agent_loop(req.repo_name, req.target_issue, run_id)
     )
-    return {"status": "started"}
+    return {"status": "started", "run_id": run_id}
 
 
 @app.post("/repo/{repo_name:path}/file")
@@ -249,27 +229,8 @@ async def stop_agents():
     if active_task and not active_task.done():
         active_task.cancel()
         active_task = None
-        await manager.broadcast(
-            {
-                "agent": "System",
-                "msg": "Agent loop cancelled by user.",
-                "color": "text-red-500",
-            }
-        )
         return {"status": "stopped"}
     return {"status": "not_running"}
-
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
-    try:
-        while True:
-            # For now, just listen and keep the connection open
-            data = await websocket.receive_text()
-            await manager.broadcast({"type": "system", "msg": f"Received: {data}"})
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
 
 
 @app.websocket("/api/terminal/ws")

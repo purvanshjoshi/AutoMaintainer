@@ -13,13 +13,57 @@ import uuid
 import json
 from ast_indexer import CodebaseMapper
 from contextvars import ContextVar
-
-current_ws = ContextVar("current_ws")
+from supabase import create_client, Client
 
 load_dotenv()
+current_run_id = ContextVar("current_run_id")
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 gh = Github(GITHUB_TOKEN) if GITHUB_TOKEN else None
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+supabase: Client | None = None
+if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+    supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+
+async def broadcast_log(message: dict):
+    run_id = current_run_id.get(None)
+    if not run_id or not supabase:
+        print("Log fallback:", message)
+        return
+
+    log_type = message.get("type", "message")
+    agent_name = message.get("agent", "System")
+    msg_text = message.get("msg")
+    color = message.get("color")
+
+    metadata = None
+    if log_type == "ui_update":
+        metadata = {k: v for k, v in message.items() if k != "type"}
+        agent_name = "System"
+        msg_text = "UI Update"
+
+    try:
+        # Run sync supabase call in executor to avoid blocking event loop
+        await asyncio.to_thread(
+            lambda: supabase.table("logs")
+            .insert(
+                {
+                    "run_id": run_id,
+                    "agent_name": agent_name,
+                    "log_type": log_type,
+                    "message": msg_text,
+                    "color": color,
+                    "metadata": metadata,
+                }
+            )
+            .execute()
+        )
+    except Exception as e:
+        print(f"Supabase insert failed: {e}")
 
 
 def get_all_groq_keys():
@@ -93,9 +137,9 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
 
                 keys = get_all_groq_keys()
                 if not keys:
-                    ws = current_ws.get(None)
-                    if ws:
-                        await ws.broadcast(
+                    run_id = current_run_id.get(None)
+                    if run_id:
+                        await broadcast_log(
                             {
                                 "agent": "System",
                                 "msg": "[ERROR] No GROQ_API_KEY found in environment. Agents cannot run.",
@@ -119,10 +163,10 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
                     {"messages": [("system", system_prompt), ("user", user_prompt)]},
                     stream_mode="updates",
                 ):
-                    ws = current_ws.get(None)
-                    if "tools" in chunk and ws:
+                    run_id = current_run_id.get(None)
+                    if "tools" in chunk and run_id:
                         for tm in chunk["tools"].get("messages", []):
-                            await ws.broadcast(
+                            await broadcast_log(
                                 {
                                     "agent": "GitNexus",
                                     "msg": f"🔍 Searched code graph using '{tm.name}'...",
@@ -148,10 +192,10 @@ async def run_llm_with_tools(system_prompt: str, user_prompt: str):
             return run_llm(system_prompt, user_prompt)
         except Exception as e2:
             print(f"LLM execution completely failed: {e2}")
-            ws = current_ws.get(None)
-            if ws:
+            run_id = current_run_id.get(None)
+            if run_id:
                 asyncio.create_task(
-                    ws.broadcast(
+                    broadcast_log(
                         {
                             "agent": "System",
                             "msg": f"LLM Rate Limit Reached: {str(e2)}. Please wait a minute.",
@@ -272,9 +316,9 @@ async def architect_node(state: AgentState):
             new_logs.append(
                 {"agent": "System", "msg": warn_msg, "color": "text-amber-400"}
             )
-            ws = current_ws.get(None)
-            if ws:
-                await ws.broadcast(
+            run_id = current_run_id.get(None)
+            if run_id:
+                await broadcast_log(
                     {"agent": "System", "msg": warn_msg, "color": "text-amber-400"}
                 )
             print(f"Failed to analyze repo with GitNexus: {e}")
@@ -288,8 +332,8 @@ async def architect_node(state: AgentState):
                     new_logs.append(
                         {"agent": "System", "msg": info_msg, "color": "text-zinc-500"}
                     )
-                    if ws:
-                        await ws.broadcast(
+                    if run_id:
+                        await broadcast_log(
                             {
                                 "agent": "System",
                                 "msg": info_msg,
@@ -777,8 +821,31 @@ workflow.add_conditional_edges("maintainer", should_iterate)
 app = workflow.compile()
 
 
-async def run_agent_loop(repo_name: str, ws_manager, target_issue: int | None = None):
-    current_ws.set(ws_manager)
+async def run_agent_loop(
+    repo_name: str, target_issue: int | None = None, run_id: str = None
+):
+    if not run_id:
+        import uuid
+
+        run_id = str(uuid.uuid4())
+    current_run_id.set(run_id)
+
+    if supabase:
+        try:
+            await asyncio.to_thread(
+                lambda: supabase.table("runs")
+                .insert(
+                    {
+                        "id": run_id,
+                        "repo_name": repo_name,
+                        "target_issue": target_issue,
+                        "status": "running",
+                    }
+                )
+                .execute()
+            )
+        except Exception as e:
+            print(f"Failed to create run in Supabase: {e}")
 
     if repo_name.startswith("http://") or repo_name.startswith("https://"):
         from urllib.parse import urlparse
@@ -788,7 +855,7 @@ async def run_agent_loop(repo_name: str, ws_manager, target_issue: int | None = 
             repo_name = parsed.path.strip("/")
 
     if not repo_name or repo_name == "owner/repo":
-        await ws_manager.broadcast(
+        await broadcast_log(
             {
                 "agent": "System",
                 "msg": "Invalid repository name. Please configure a valid Target Repository.",
@@ -812,7 +879,7 @@ async def run_agent_loop(repo_name: str, ws_manager, target_issue: int | None = 
         "log_messages": [],
     }
 
-    await ws_manager.broadcast(
+    await broadcast_log(
         {
             "agent": "System",
             "msg": f"Starting loop for repo: {repo_name}...",
@@ -825,11 +892,21 @@ async def run_agent_loop(repo_name: str, ws_manager, target_issue: int | None = 
 
         new_msgs = state["log_messages"][last_idx:]
         for msg in new_msgs:
-            await ws_manager.broadcast(msg)
+            await broadcast_log(msg)
             await asyncio.sleep(0.5)
 
         last_idx = len(state["log_messages"])
 
-    await ws_manager.broadcast(
+    await broadcast_log(
         {"agent": "System", "msg": "Agent loop complete.", "color": "text-zinc-500"}
     )
+    if supabase:
+        try:
+            await asyncio.to_thread(
+                lambda: supabase.table("runs")
+                .update({"status": "completed"})
+                .eq("id", run_id)
+                .execute()
+            )
+        except Exception as e:
+            print(f"Failed to update run status in Supabase: {e}")

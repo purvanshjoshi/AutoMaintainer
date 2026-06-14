@@ -6,6 +6,11 @@ import { BrainCircuit, GitPullRequest, Search, FileCode, CheckCircle, Activity, 
 import { motion } from "framer-motion";
 import WebIDE from "../components/WebIDE";
 import dynamic from 'next/dynamic';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const InteractiveTerminal = dynamic(() => import('../components/InteractiveTerminal'), { ssr: false });
 
@@ -40,6 +45,7 @@ export default function Home() {
   const [isEditingRepo, setIsEditingRepo] = useState(false);
   const [targetIssue, setTargetIssue] = useState("");
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [terminalMode, setTerminalMode] = useState<'logs' | 'pty'>('logs');
   const [logs, setLogs] = useState([
     { time: "00:00:00", agent: "System", msg: "Connecting to backend...", color: "text-zinc-500" }
@@ -66,7 +72,7 @@ export default function Home() {
       setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), agent: "System", msg: `Triggering AI Agent Loop for ${repoUrl}...`, color: "text-zinc-500" }]);
       try {
         const backendUrl = getBackendUrl();
-        await fetch(`${backendUrl}/start`, {
+        const res = await fetch(`${backendUrl}/start`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ 
@@ -74,6 +80,11 @@ export default function Home() {
             target_issue: targetIssue ? parseInt(targetIssue.replace('#',''), 10) : null 
           })
         });
+        const data = await res.json();
+        if (data.run_id) {
+          setActiveRunId(data.run_id);
+          setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), agent: "System", msg: `Connected to Supabase Run ID: ${data.run_id.substring(0,8)}...`, color: "text-emerald-500" }]);
+        }
       } catch (err) {
         console.error(err);
         setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), agent: "System", msg: `Failed to reach backend. Is it running? (${err})`, color: "text-red-400" }]);
@@ -92,53 +103,75 @@ export default function Home() {
   };
 
   useEffect(() => {
-    const backendUrl = getBackendUrl();
-    const wsProtocol = backendUrl.startsWith("https") ? "wss:" : "ws:";
-    const wsHost = backendUrl.replace(/^https?:\/\//, "");
-    const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws`);
-    
-    ws.onopen = () => {
-      setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), agent: "System", msg: "Connected to AutoMaintainer Core", color: "text-emerald-500" }]);
-    };
+    if (!activeRunId) return;
 
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-      setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), agent: "System", msg: "WebSocket connection error. Check backend connectivity.", color: "text-red-400" }]);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'ui_update') {
-          if (data.agentStatus) {
-             setAgentStatus((prev: any) => ({ ...prev, ...data.agentStatus }));
+    // Fetch existing historical logs from Supabase
+    const fetchHistory = async () => {
+      const { data, error } = await supabase.from('logs').select('*').eq('run_id', activeRunId).order('created_at', { ascending: true });
+      if (data && data.length > 0) {
+        const historyLogs: any[] = [];
+        data.forEach((row: any) => {
+          if (row.log_type === 'ui_update') {
+            const msgData = row.metadata || {};
+            if (msgData.agentStatus) setAgentStatus((prev: any) => ({ ...prev, ...msgData.agentStatus }));
+            if (msgData.pipeline) {
+              setPipeline((prev) => {
+                const exists = prev.find(p => p.id === msgData.pipeline.id);
+                if (exists) return prev.map(p => p.id === msgData.pipeline.id ? msgData.pipeline : p);
+                return [msgData.pipeline, ...prev];
+              });
+            }
+            if (msgData.activity) setActivity((prev) => [msgData.activity, ...prev]);
+          } else {
+            const date = new Date(row.created_at);
+            historyLogs.push({
+              time: date.toLocaleTimeString(),
+              agent: row.agent_name || "System",
+              msg: row.message || "",
+              color: row.color || "text-zinc-400"
+            });
           }
-          if (data.pipeline) {
-             setPipeline((prev) => {
-               // Update existing or add new
-               const exists = prev.find(p => p.id === data.pipeline.id);
-               if (exists) return prev.map(p => p.id === data.pipeline.id ? data.pipeline : p);
-               return [data.pipeline, ...prev];
-             });
-          }
-          if (data.activity) {
-             setActivity((prev) => [data.activity, ...prev]);
-          }
-        } else {
-          setLogs(prev => [...prev, {
-            time: new Date().toLocaleTimeString(),
-            agent: data.agent || "System",
-            msg: data.msg || JSON.stringify(data),
-            color: data.color || "text-zinc-400"
-          }]);
+        });
+        if (historyLogs.length > 0) {
+          setLogs(prev => [...prev, ...historyLogs]);
         }
-      } catch (e) {
-        console.error("Failed to parse WS message", e);
       }
     };
-    
-    return () => ws.close();
-  }, []);
+    fetchHistory();
+
+    // Subscribe to new real-time logs
+    const channel = supabase.channel(`logs_${activeRunId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'logs', filter: `run_id=eq.${activeRunId}` }, (payload) => {
+        const row = payload.new as any;
+        if (row.log_type === 'ui_update') {
+          const msgData = row.metadata || {};
+          if (msgData.agentStatus) setAgentStatus((prev: any) => ({ ...prev, ...msgData.agentStatus }));
+          if (msgData.pipeline) {
+            setPipeline((prev) => {
+              const exists = prev.find(p => p.id === msgData.pipeline.id);
+              if (exists) return prev.map(p => p.id === msgData.pipeline.id ? msgData.pipeline : p);
+              return [msgData.pipeline, ...prev];
+            });
+          }
+          if (msgData.activity) setActivity((prev) => [msgData.activity, ...prev]);
+        } else {
+          const date = new Date(row.created_at || Date.now());
+          setLogs(prev => [...prev, {
+            time: date.toLocaleTimeString(),
+            agent: row.agent_name || "System",
+            msg: row.message || "",
+            color: row.color || "text-zinc-400"
+          }]);
+        }
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log(`Subscribed to Supabase Realtime for run ${activeRunId}`);
+        }
+      });
+      
+    return () => { supabase.removeChannel(channel); };
+  }, [activeRunId]);
 
   return (
     <div className="flex h-screen w-full bg-[#0a0a0a] text-zinc-100 font-sans overflow-hidden">
