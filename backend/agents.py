@@ -465,6 +465,16 @@ async def architect_node(state: AgentState):
             "color": "text-rose-400",
         }
     )
+    new_logs.append(
+        {
+            "type": "ui_update",
+            "activity": {
+                "title": "Analyzed Repository Architecture",
+                "time": "Just now",
+                "type": "search",
+            },
+        }
+    )
     new_logs.append({"type": "ui_update", "agentStatus": {"Architect": "idle"}})
     return {
         "architect_directive": state.get("architect_directive", ""),
@@ -535,6 +545,16 @@ async def brainstormer_node(state: AgentState):
                     "agent": "System",
                     "msg": f"Created GitHub Issue #{issue.number}",
                     "color": "text-emerald-500",
+                }
+            )
+            new_logs.append(
+                {
+                    "type": "ui_update",
+                    "activity": {
+                        "title": f"Created Issue #{issue.number}",
+                        "time": "Just now",
+                        "type": "search",
+                    },
                 }
             )
         except Exception as e:
@@ -724,6 +744,16 @@ async def implementer_node(state: AgentState):
                         "agent": "System",
                         "msg": f"Created PR #{pr.number}: {pr.html_url}",
                         "color": "text-emerald-500",
+                    }
+                )
+                new_logs.append(
+                    {
+                        "type": "ui_update",
+                        "activity": {
+                            "title": f"Opened PR #{pr.number}",
+                            "time": "Just now",
+                            "type": "merge",
+                        },
                     }
                 )
             else:
